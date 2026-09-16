@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Space Grotesk", sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-natural-bg: #e1eaf7;
+  --color-natural-text: #24334a;
+  --color-natural-primary: #322f82;
+  --color-natural-heading: #322f82;
+  --color-natural-muted: #536987;
+  --color-natural-border: #cbdbee;
+  --color-natural-card-border: #dbe7f5;
+  --color-natural-sand: #687f9e;
+  --color-natural-light: #edf4fc;
+}
+
+@layer utilities {
+  .animate-fadeIn {
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+  
+  .animate-scaleIn {
+    animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-natural-bg);
+  color: var(--color-natural-text);
+  font-family: var(--font-sans);
+}
+
+/* Glassmorphism styling rules */
+.glass-card {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(214, 228, 240, 0.7);
+}
+
+.glass-nav {
+  background: rgba(255, 255, 255, 0.90);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(50, 47, 130, 0.1);
+}
+
+/* Custom premium hover effect for Gen Z vibe */
+.genz-button {
+  background-color: #322f82;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(50, 47, 130, 0.2);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.genz-button:hover {
+  background-color: #27246a;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(50, 47, 130, 0.3);
+}
+
+.genz-button-secondary {
+  background-color: #edf4fc;
+  color: #322f82;
+  border: 1px solid rgba(50, 47, 130, 0.15);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.genz-button-secondary:hover {
+  background-color: #dbe7f5;
+  transform: translateY(-2px);
+}
+
+/* Selection highlights */
+::selection {
+  background-color: #cbdbee;
+  color: #322f82;
+}
+
+

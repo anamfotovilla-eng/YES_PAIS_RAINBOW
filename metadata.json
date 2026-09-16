@@ -1,0 +1,6 @@
+{
+  "name": "Yespaistory Hub",
+  "description": "A modern educational story portal for Grades 1-10 with curated student stories and an interactive admin portal for Iqra Education Society & Yes India Foundation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
