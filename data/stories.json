@@ -33,4 +33,24 @@
     "createdAt": "2026-07-10T12:00:00Z",
     "studentName": "Lucas Thompson"
   },
+  {
+    "id": "story-2",
+    "title": "The Mystery of the Floating Leaf",
+    "slug": "mystery-of-the-floating-leaf",
+    "description": "Follow Maya on a sunny afternoon adventure as she discovers the magic of surface tension and water insects.",
+    "content": "Maya loved the stream at the edge of Grade 1's forest playground. One sunny Tuesday, she noticed something peculiar. A large yellow leaf had fallen onto the stream, and instead of sinking or just floating flat, a tiny water strider insect was standing right on top of it, gliding like a skater on ice!\n\n'How do you stay up there?' Maya asked, leaning in close.\n\nSuddenly, the leaf tapped against a rock. Maya saw a shiny droplet of water resting perfectly like a glass bead on the leaf's surface. It didn't spread out; it stayed in a tiny, perfect sphere. She touched the droplet with her finger—*pop!* It melted into the leaf.\n\nHer teacher, Mrs. Maple, walked over and smiled. 'That is the magic of surface tension, Maya. The water molecules at the top act like a tiny, invisible trampoline sheet. They hold hands very tightly!'\n\nMaya's eyes widened. 'Invisible hand-holders!' she laughed. She tried placing a small dry twig on the water. It floated. Then she tried a tiny pebble—it broke through the hands and went *plop!* straight to the bottom.\n\nShe learned that nature has wonderful balances. Some things are light enough to dance on the water's skin, while others dive deep. When she went home, she couldn't wait to tell her parents how the tiny water bugs hold their breath and skate along the invisible, tight-holding water hands.",
+    "gradeId": "grade-1",
+    "moduleId": "mod-nature",
+    "imageUrl": "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=800&auto=format&fit=crop",
+    "keywords": [
+      "nature",
+      "water",
+      "insects",
+      "science",
+      "curiosity"
+    ],
+    "isPublished": true,
+    "createdAt": "2026-07-09T10:30:00Z",
+    "studentName": "Maya Lin"
+  }
 ]
