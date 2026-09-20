@@ -52,5 +52,25 @@
     "isPublished": true,
     "createdAt": "2026-07-09T10:30:00Z",
     "studentName": "Maya Lin"
+  },
+  {
+    "id": "story-3",
+    "title": "Belief In Yourself",
+    "slug": "Belief-In-Yourself",
+    "description": "A story about Arav, who learns that confidence, consistency, and hard work can help us achieve our goals.",
+    "content": "One sunny morning, Arav’s school announced an exciting competition. Arav wanted to take part, but he felt a little nervous. I don’t think I can win,” he said sadly. His teacher smiled and said, “Arav, believe in yourself! Give it your best, and never be afraid to try. Arav listened to his teacher. Every day, he practised with great determination. Sometimes he made mistakes, but he never gave up. He kept trying and became better and better. Finally, the day of the competition arrived. Arav took a deep breath, smiled, and gave his best performance. When the results were announced, everyone cheered—Arav had won the competition! Arav was very happy. He thanked his teacher and learned an important lesson: with confidence, consistency, and hard work, we can achieve our goals. Moral: Believe in yourself, work hard, and never give up!",
+    "gradeId": "grade-1",
+    "moduleId": "mod-nature",
+    "imageUrl": "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=800&auto=format&fit=crop",
+    "keywords": [
+      "School",
+      "Competition",
+      "confidence",
+      "goals",
+      "consistency"
+    ],
+    "isPublished": true,
+    "createdAt": "2026-07-09T10:30:00Z",
+    "studentName": "Shaikh Fatima Alim"
   }
 ]
