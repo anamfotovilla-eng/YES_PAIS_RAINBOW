@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { BookOpen, Menu, X, Bell, Book, Check, Trash2, Clock, ShieldCheck, Lock } from "lucide-react";
+import { Menu, X, Bell, Book, Check, Trash2, Clock } from "lucide-react";
 import { AppNotification } from "../types";
 import YesIndiaLogo from "./YesIndiaLogo";
 
@@ -239,30 +239,6 @@ export default function Header({
             </div>
 
 
-            {/* Direct Admin Access Button */}
-            <button
-              onClick={() => handleNavClick(isAdminLogged ? "#/admin-dashboard" : "#/admin")}
-              id="header-admin-btn"
-              className={`hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-sans font-bold rounded-xl border transition-all cursor-pointer shadow-xs ${
-                currentRoute.startsWith("#/admin") || currentRoute.startsWith("#/portal")
-                  ? "bg-[#24285b] text-white border-[#24285b]"
-                  : "bg-slate-50 hover:bg-indigo-50 text-slate-700 hover:text-indigo-900 border-slate-200 hover:border-indigo-200"
-              }`}
-              title="Administrator Management Portal"
-            >
-              {isAdminLogged ? (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Admin Panel</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Admin Portal</span>
-                </>
-              )}
-            </button>
-
             {/* Mobile menu button */}
             <div className="md:hidden flex items-center">
               <button
@@ -294,15 +270,6 @@ export default function Header({
                 {item.name}
               </button>
             ))}
-            <div className="pt-2 border-t border-natural-border/60">
-              <button
-                onClick={() => handleNavClick(isAdminLogged ? "#/admin-dashboard" : "#/admin")}
-                className="flex items-center gap-2 w-full text-left px-4 py-2.5 rounded-xl font-sans font-bold text-sm bg-indigo-50 text-indigo-900 transition-colors cursor-pointer"
-              >
-                {isAdminLogged ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <Lock className="w-4 h-4 text-indigo-700" />}
-                <span>{isAdminLogged ? "Admin Dashboard" : "Admin Portal Login"}</span>
-              </button>
-            </div>
           </div>
         </div>
       )}

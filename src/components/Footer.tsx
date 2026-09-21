@@ -1,5 +1,4 @@
 import React from "react";
-import { Lock } from "lucide-react";
 import SchoolLogo from "./SchoolLogo";
 
 interface FooterProps {
@@ -34,16 +33,6 @@ export default function Footer({ onNavigate }: FooterProps) {
             <p className="font-sans font-semibold text-[10px] tracking-wider uppercase text-slate-400">
               A School-Friendly Digital Portal
             </p>
-            <span className="text-slate-300">•</span>
-            <button
-              id="footer-admin-access-btn"
-              onClick={() => onNavigate("#/admin")}
-              className="text-slate-500 hover:text-[#322f82] font-sans font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer"
-              title="Admin Portal Login"
-            >
-              <Lock className="w-3 h-3 text-slate-400" />
-              Admin Access
-            </button>
           </div>
         </div>
       </div>

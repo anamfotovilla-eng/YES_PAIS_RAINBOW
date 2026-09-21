@@ -95,18 +95,9 @@ export default function App() {
       });
     };
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "A" || e.key === "a")) {
-        e.preventDefault();
-        window.location.hash = "#/admin-login";
-      }
-    };
-
     window.addEventListener("hashchange", handleHashChange);
-    window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("hashchange", handleHashChange);
-      window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
 
