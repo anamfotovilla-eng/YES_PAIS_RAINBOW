@@ -46,6 +46,8 @@ export default function Header({
     setIsOpen(false);
     if (notif.storySlug) {
       onNavigate(`#/story/${notif.storySlug}`);
+    } else if (notif.storyId) {
+      onNavigate(`#/story/${notif.storyId}`);
     } else {
       onNavigate("#/");
     }
@@ -58,15 +60,19 @@ export default function Header({
     return currentRoute === route;
   };
 
-  // Close notifications dropdown when clicking outside
+  // Close notifications dropdown when clicking/tapping outside
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowNotifications(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
   }, []);
 
   const formatTime = (isoString: string) => {
@@ -107,7 +113,7 @@ export default function Header({
           </div>
 
           {/* Right Navigation & Utility panel */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-8 font-medium mr-2">
               {navItems.map((item) => (
@@ -144,84 +150,94 @@ export default function Header({
                 )}
               </button>
 
-              {/* Notification Dropdown Panel */}
+              {/* Notification Dropdown Panel - Perfectly positioned for mobile & desktop */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-natural-border rounded-2xl shadow-xl overflow-hidden z-50 animate-fadeIn">
-                  <div className="p-4 border-b border-natural-border bg-natural-light/40 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-serif font-bold text-sm text-natural-heading">Story Notifications</h3>
-                      <p className="text-[10px] text-natural-sand font-medium mt-0.5">Stay up to date with new reading material</p>
-                    </div>
-                    {unreadCount > 0 && (
-                      <button
-                        onClick={onMarkAllRead}
-                        className="text-[11px] font-sans font-bold text-natural-primary hover:text-natural-heading transition-colors flex items-center gap-1 cursor-pointer"
-                      >
-                        <Check className="w-3 h-3" /> Mark all read
-                      </button>
-                    )}
-                  </div>
+                <>
+                  {/* Backdrop overlay for mobile */}
+                  <div
+                    className="fixed inset-0 bg-black/20 backdrop-blur-xs sm:hidden z-40"
+                    onClick={() => setShowNotifications(false)}
+                  />
 
-                  <div className="max-h-[320px] overflow-y-auto divide-y divide-natural-border/30">
-                    {notifications.length === 0 ? (
-                      <div className="p-8 text-center">
-                        <div className="w-12 h-12 bg-natural-light rounded-full flex items-center justify-center text-natural-sand mx-auto mb-3">
-                          <Bell className="w-5 h-5 text-natural-sand" />
-                        </div>
-                        <p className="font-serif font-bold text-sm text-natural-heading">All Caught Up!</p>
-                        <p className="text-xs text-natural-sand mt-1">No new notifications at this time.</p>
+                  <div className="fixed sm:absolute top-18 sm:top-full left-3 sm:left-auto right-3 sm:right-0 mt-2 sm:mt-2 w-auto sm:w-96 bg-white border border-natural-border rounded-2xl shadow-2xl sm:shadow-xl overflow-hidden z-50 animate-fadeIn max-h-[85vh] sm:max-h-[500px] flex flex-col">
+                    <div className="p-4 border-b border-natural-border bg-natural-light/40 flex items-center justify-between shrink-0">
+                      <div>
+                        <h3 className="font-serif font-bold text-sm text-natural-heading">Story Notifications</h3>
+                        <p className="text-[10px] text-natural-sand font-medium mt-0.5">Stay up to date with new reading material</p>
                       </div>
-                    ) : (
-                      notifications.map((notif) => (
-                        <div
-                          key={notif.id}
-                          onClick={() => handleNotificationClick(notif)}
-                          className={`p-4 transition-colors cursor-pointer text-left ${
-                            notif.isRead ? "bg-white hover:bg-natural-light/10" : "bg-amber-50/20 hover:bg-amber-50/40"
-                          }`}
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={onMarkAllRead}
+                          className="text-[11px] font-sans font-bold text-natural-primary hover:text-natural-heading transition-colors flex items-center gap-1 cursor-pointer"
                         >
-                          <div className="flex items-start gap-3">
-                            <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
-                              notif.isRead ? "bg-natural-light text-natural-sand" : "bg-natural-primary/15 text-natural-primary"
-                            }`}>
-                              <Book className="w-3.5 h-3.5" />
-                            </div>
-                            <div className="flex-grow min-w-0">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className={`text-xs font-bold truncate ${notif.isRead ? "text-natural-heading" : "text-natural-primary"}`}>
-                                  {notif.title}
-                                </p>
-                                {!notif.isRead && (
-                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                                )}
+                          <Check className="w-3 h-3" /> Mark all read
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="max-h-[360px] overflow-y-auto divide-y divide-natural-border/30">
+                      {notifications.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <div className="w-12 h-12 bg-natural-light rounded-full flex items-center justify-center text-natural-sand mx-auto mb-3">
+                            <Bell className="w-5 h-5 text-natural-sand" />
+                          </div>
+                          <p className="font-serif font-bold text-sm text-natural-heading">All Caught Up!</p>
+                          <p className="text-xs text-natural-sand mt-1">No new notifications at this time.</p>
+                        </div>
+                      ) : (
+                        notifications.map((notif) => (
+                          <div
+                            key={notif.id}
+                            onClick={() => handleNotificationClick(notif)}
+                            className={`p-4 transition-colors cursor-pointer text-left ${
+                              notif.isRead ? "bg-white hover:bg-natural-light/20" : "bg-amber-50/40 hover:bg-amber-50/70"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                                notif.isRead ? "bg-natural-light text-natural-sand" : "bg-amber-100 text-amber-700 font-bold"
+                              }`}>
+                                <Book className="w-3.5 h-3.5" />
                               </div>
-                              <p className="text-[11px] text-natural-text line-clamp-2 mt-0.5 leading-relaxed">
-                                {notif.message}
-                              </p>
-                              <div className="flex items-center gap-1 mt-1.5 text-[9px] font-mono text-natural-sand">
-                                <Clock className="w-3 h-3" />
-                                <span>{formatTime(notif.createdAt)}</span>
+                              <div className="flex-grow min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className={`text-xs font-bold truncate ${notif.isRead ? "text-natural-heading" : "text-[#322f82]"}`}>
+                                    {notif.title}
+                                  </p>
+                                  {!notif.isRead && (
+                                    <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-natural-text line-clamp-2 mt-0.5 leading-relaxed">
+                                  {notif.message}
+                                </p>
+                                <div className="flex items-center gap-1 mt-1.5 text-[9px] font-mono text-natural-sand">
+                                  <Clock className="w-3 h-3" />
+                                  <span>{formatTime(notif.createdAt)}</span>
+                                  <span className="ml-auto text-[10px] font-sans font-bold text-indigo-600">Open Story &rarr;</span>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      ))
+                        ))
+                      )}
+                    </div>
+
+                    {notifications.length > 0 && (
+                      <div className="p-3 bg-natural-light/20 border-t border-natural-border/50 text-center flex items-center justify-center shrink-0">
+                        <button
+                          onClick={onClearAll}
+                          className="text-[11px] font-sans font-bold text-rose-600 hover:text-rose-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" /> Clear notification history
+                        </button>
+                      </div>
                     )}
                   </div>
-
-                  {notifications.length > 0 && (
-                    <div className="p-3 bg-natural-light/20 border-t border-natural-border/50 text-center flex items-center justify-center">
-                      <button
-                        onClick={onClearAll}
-                        className="text-[11px] font-sans font-bold text-rose-600 hover:text-rose-800 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Trash2 className="w-3 h-3" /> Clear notification history
-                      </button>
-                    </div>
-                  )}
-                </div>
+                </>
               )}
             </div>
+
 
             {/* Direct Admin Access Button */}
             <button

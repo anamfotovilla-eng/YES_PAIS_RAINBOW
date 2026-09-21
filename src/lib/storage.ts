@@ -1,5 +1,5 @@
-import { Grade, Module, Story, AboutUsContent, ContactUsContent, AppNotification, FeedbackItem } from "../types";
-import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_STORIES, DEFAULT_ABOUT, DEFAULT_CONTACT } from "../sampleData";
+import { Grade, Module, Story, AboutUsContent, ContactUsContent, AppNotification, FeedbackItem, ShiningStar } from "../types";
+import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_ABOUT, DEFAULT_CONTACT } from "../sampleData";
 
 const KEYS = {
   GRADES: "yespaistory_grades",
@@ -11,6 +11,30 @@ const KEYS = {
   NOTIFICATIONS: "yespaistory_notifications",
   FEEDBACK: "yespaistory_feedback_inbox",
   ADMIN_PASSWORD: "yespaistory_admin_password",
+  SHINING_STARS: "yespaistory_shining_stars",
+};
+
+// Helper to identify default/sample stories that should never appear on the user portal
+const DEFAULT_STORY_SLUGS = [
+  "oliver-owl-learned-to-share",
+  "mystery-of-the-floating-leaf",
+  "moons-lost-nightcap",
+  "code-of-the-forest-bees",
+  "echo-chamber-of-stone-mountain",
+  "legend-of-the-golden-quill",
+  "wood-wide-web-trees-talk",
+  "quantum-compass",
+  "riddle-golden-gate",
+  "belief-in-yourself",
+];
+
+export const isDefaultStory = (s: Story): boolean => {
+  if (!s) return false;
+  const id = String(s.id || "");
+  const slug = String(s.slug || "").toLowerCase();
+  if (/^story-[1-9]$/.test(id)) return true;
+  if (DEFAULT_STORY_SLUGS.includes(slug)) return true;
+  return false;
 };
 
 // Helpers
@@ -62,8 +86,10 @@ export const getModules = (): Module[] => {
 
 export const getStories = (): Story[] => {
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-  const current = getLocalStorage<Story[]>(KEYS.STORIES, DEFAULT_STORIES);
-  const filtered = current.filter((s) => !deletedIds.includes(s.id));
+  // Default to empty array - only admin created stories should exist
+  const current = getLocalStorage<Story[]>(KEYS.STORIES, []);
+  // Filter out deleted stories and any legacy default stories
+  const filtered = current.filter((s) => !deletedIds.includes(s.id) && !isDefaultStory(s));
   if (filtered.length !== current.length) {
     setLocalStorage(KEYS.STORIES, filtered);
   }
@@ -120,6 +146,16 @@ export const saveNotifications = (notifications: AppNotification[]): void => {
 // Notification Helpers
 export const addNotification = (title: string, message: string, storyId?: string, storySlug?: string): AppNotification => {
   const notifications = getNotifications();
+  // Check if a notification already exists for this story (prevent duplicates)
+  if (storyId || storySlug) {
+    const existing = notifications.find(
+      (n) => (storyId && n.storyId === storyId) || (storySlug && n.storySlug === storySlug)
+    );
+    if (existing) {
+      return existing;
+    }
+  }
+
   const newNotif: AppNotification = {
     id: `notif-${Date.now()}`,
     title,
@@ -135,7 +171,57 @@ export const addNotification = (title: string, message: string, storyId?: string
     notifications.pop();
   }
   saveNotifications(notifications);
+
+  // Sync to server API
+  fetch("/api/notifications", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, message, storyId, storySlug }),
+  }).catch(() => {});
+
   return newNotif;
+};
+
+// Server API sync for notifications
+export const fetchNotificationsAsync = async (): Promise<AppNotification[]> => {
+  try {
+    const res = await fetch("/api/notifications");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.notifications && Array.isArray(data.notifications)) {
+        setLocalStorage(KEYS.NOTIFICATIONS, data.notifications);
+        return data.notifications;
+      }
+    }
+  } catch (err) {
+    // Graceful fallback to client storage
+  }
+  return getNotifications();
+};
+
+export const markNotificationReadAsync = async (id: string): Promise<void> => {
+  const notifications = getNotifications();
+  const updated = notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n));
+  saveNotifications(updated);
+  try {
+    await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
+  } catch {}
+};
+
+export const markAllNotificationsReadAsync = async (): Promise<void> => {
+  const notifications = getNotifications();
+  const updated = notifications.map((n) => ({ ...n, isRead: true }));
+  saveNotifications(updated);
+  try {
+    await fetch("/api/notifications/mark-all-read", { method: "POST" });
+  } catch {}
+};
+
+export const clearAllNotificationsAsync = async (): Promise<void> => {
+  saveNotifications([]);
+  try {
+    await fetch("/api/notifications", { method: "DELETE" });
+  } catch {}
 };
 
 // Server API sync for stories
@@ -145,8 +231,9 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
     if (res.ok) {
       const data = await res.json();
       if (data.stories && Array.isArray(data.stories)) {
-        setLocalStorage(KEYS.STORIES, data.stories);
-        return data.stories;
+        const cleanStories = data.stories.filter((s: Story) => !isDefaultStory(s));
+        setLocalStorage(KEYS.STORIES, cleanStories);
+        return cleanStories;
       }
     }
   } catch (err) {
@@ -173,7 +260,7 @@ export const addStory = (story: Omit<Story, "id" | "createdAt">): Story => {
     body: JSON.stringify(newStory),
   }).catch((err) => console.warn("Failed to persist new story to server API:", err));
 
-  // Automatically create notification for the newly added story
+  // Automatically create notification for the newly added story if published
   if (newStory.isPublished) {
     addNotification(
       "New Story Added! 📚",
@@ -222,8 +309,8 @@ export const deleteStory = (id: string): void => {
     deletedIds.push(id);
     setLocalStorage(KEYS.DELETED_STORIES, deletedIds);
   }
-  const current = getLocalStorage<Story[]>(KEYS.STORIES, DEFAULT_STORIES);
-  const filtered = current.filter((s) => s.id !== id && !deletedIds.includes(s.id));
+  const current = getLocalStorage<Story[]>(KEYS.STORIES, []);
+  const filtered = current.filter((s) => s.id !== id && !deletedIds.includes(s.id) && !isDefaultStory(s));
   saveStories(filtered);
 
   // Automatically sync deletion to backend server disk
@@ -231,6 +318,7 @@ export const deleteStory = (id: string): void => {
     method: "DELETE",
   }).catch((err) => console.warn("Failed to sync deletion to server API:", err));
 };
+
 
 // Module Helpers
 export const addModule = (name: string, description?: string): Module => {
@@ -482,5 +570,117 @@ export const resetAdminPasswordAsync = async (
   }
 
   return { success: true, message: "Administrator password has been reset successfully!" };
+};
+
+// Shining Stars Management (Showcases top student authors)
+const DEFAULT_SHINING_STARS: ShiningStar[] = [
+  {
+    id: "star-1",
+    studentName: "Zoya Patel",
+    className: "Grade 3",
+    division: "A",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "star-2",
+    studentName: "Ayaan Shaikh",
+    className: "Grade 5",
+    division: "B",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "star-3",
+    studentName: "Fatima Alim",
+    className: "Grade 1",
+    division: "A",
+    createdAt: new Date().toISOString(),
+  },
+];
+
+export const getShiningStars = (): ShiningStar[] => {
+  return getLocalStorage<ShiningStar[]>(KEYS.SHINING_STARS, DEFAULT_SHINING_STARS);
+};
+
+export const saveShiningStars = (stars: ShiningStar[]): void => {
+  setLocalStorage(KEYS.SHINING_STARS, stars);
+};
+
+export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
+  try {
+    const res = await fetch("/api/shining-stars");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.stars && Array.isArray(data.stars)) {
+        setLocalStorage(KEYS.SHINING_STARS, data.stars);
+        return data.stars;
+      }
+    }
+  } catch (err) {
+    // Graceful fallback to client storage
+  }
+  return getShiningStars();
+};
+
+export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">): Promise<ShiningStar> => {
+  const stars = getShiningStars();
+  const newStar: ShiningStar = {
+    ...star,
+    id: `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    createdAt: new Date().toISOString(),
+  };
+  stars.unshift(newStar);
+  saveShiningStars(stars);
+
+  try {
+    const res = await fetch("/api/shining-stars", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newStar),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.star) return data.star;
+    }
+  } catch (err) {
+    console.warn("Failed to persist shining star to server API:", err);
+  }
+
+  return newStar;
+};
+
+export const updateShiningStar = async (id: string, updatedData: Partial<ShiningStar>): Promise<ShiningStar> => {
+  const stars = getShiningStars();
+  const index = stars.findIndex((s) => s.id === id);
+  if (index === -1) throw new Error("Shining star not found");
+
+  const updated = { ...stars[index], ...updatedData };
+  stars[index] = updated;
+  saveShiningStars(stars);
+
+  try {
+    await fetch(`/api/shining-stars/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    });
+  } catch (err) {
+    console.warn("Failed to sync shining star update to server API:", err);
+  }
+
+  return updated;
+};
+
+export const deleteShiningStar = async (id: string): Promise<void> => {
+  const stars = getShiningStars();
+  const filtered = stars.filter((s) => s.id !== id);
+  saveShiningStars(filtered);
+
+  try {
+    await fetch(`/api/shining-stars/${id}`, {
+      method: "DELETE",
+    });
+  } catch (err) {
+    console.warn("Failed to sync shining star deletion to server API:", err);
+  }
 };
 

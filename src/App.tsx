@@ -8,8 +8,22 @@ import ContactUs from "./components/ContactUs";
 import AdminLogin from "./components/AdminLogin";
 import AdminDashboard from "./components/AdminDashboard";
 
-import { Story, Grade, Module, AppNotification } from "./types";
-import { getStories, getGrades, getModules, getNotifications, saveNotifications, fetchStoriesAsync } from "./lib/storage";
+import { Story, Grade, Module, AppNotification, ShiningStar } from "./types";
+import {
+  getStories,
+  getGrades,
+  getModules,
+  getNotifications,
+  saveNotifications,
+  fetchStoriesAsync,
+  fetchNotificationsAsync,
+  markNotificationReadAsync,
+  markAllNotificationsReadAsync,
+  clearAllNotificationsAsync,
+  getShiningStars,
+  fetchShiningStarsAsync,
+} from "./lib/storage";
+import ShiningStarsSection from "./components/ShiningStarsSection";
 import { BookOpen, Search, Sparkles, FilterX, HelpCircle, Layers, ArrowRight } from "lucide-react";
 
 const STORIES_PER_PAGE = 6;
@@ -23,6 +37,7 @@ export default function App() {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [shiningStars, setShiningStars] = useState<ShiningStar[]>([]);
 
   // User Interactive States
   const [searchQuery, setSearchQuery] = useState("");
@@ -35,8 +50,18 @@ export default function App() {
     // Initial fetch from storage & sync from server API
     refreshAppDatabase();
     fetchStoriesAsync().then((fresh) => {
-      if (fresh && fresh.length > 0) {
+      if (fresh) {
         setStories(fresh);
+      }
+    });
+    fetchNotificationsAsync().then((freshNotifs) => {
+      if (freshNotifs) {
+        setNotifications(freshNotifs);
+      }
+    });
+    fetchShiningStarsAsync().then((freshStars) => {
+      if (freshStars) {
+        setShiningStars(freshStars);
       }
     });
 
@@ -54,8 +79,18 @@ export default function App() {
       // Ensure we fetch freshest data if admin edits have occurred
       refreshAppDatabase();
       fetchStoriesAsync().then((fresh) => {
-        if (fresh && fresh.length > 0) {
+        if (fresh) {
           setStories(fresh);
+        }
+      });
+      fetchNotificationsAsync().then((freshNotifs) => {
+        if (freshNotifs) {
+          setNotifications(freshNotifs);
+        }
+      });
+      fetchShiningStarsAsync().then((freshStars) => {
+        if (freshStars) {
+          setShiningStars(freshStars);
         }
       });
     };
@@ -80,22 +115,21 @@ export default function App() {
     setGrades(getGrades());
     setModules(getModules());
     setNotifications(getNotifications());
+    setShiningStars(getShiningStars());
   };
 
   const handleMarkAllRead = () => {
-    const updated = notifications.map((n) => ({ ...n, isRead: true }));
-    saveNotifications(updated);
-    setNotifications(updated);
+    markAllNotificationsReadAsync();
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
   };
 
   const handleMarkRead = (id: string) => {
-    const updated = notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n));
-    saveNotifications(updated);
-    setNotifications(updated);
+    markNotificationReadAsync(id);
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
   };
 
   const handleClearAll = () => {
-    saveNotifications([]);
+    clearAllNotificationsAsync();
     setNotifications([]);
   };
 
@@ -164,7 +198,12 @@ export default function App() {
     // 1. STORY DETAIL ROUTE
     if (currentRoute.startsWith("#/story/")) {
       const slug = currentRoute.replace("#/story/", "");
-      const foundStory = stories.find((s) => s.slug === slug);
+      const cleanSlug = decodeURIComponent(slug).trim().toLowerCase();
+      const foundStory = stories.find((s) => {
+        const sSlug = String(s.slug || "").trim().toLowerCase();
+        const sId = String(s.id || "").trim().toLowerCase();
+        return sSlug === cleanSlug || sId === cleanSlug || s.slug === slug || s.id === slug;
+      });
 
       if (foundStory) {
         const gradeObj = grades.find((g) => g.id === foundStory.gradeId);
@@ -253,6 +292,9 @@ export default function App() {
             </p>
           </div>
         </section>
+
+        {/* Shining Stars Section ⭐ */}
+        <ShiningStarsSection stars={shiningStars} />
 
         {/* Search Bar & Grade Filter Block */}
         <div className="glass-card rounded-3xl p-6 sm:p-8 shadow-sm mb-8 animate-fadeIn border border-natural-border">

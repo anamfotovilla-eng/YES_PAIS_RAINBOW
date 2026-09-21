@@ -60,3 +60,11 @@ export interface FeedbackItem {
   status: "new" | "reviewed" | "archived";
 }
 
+export interface ShiningStar {
+  id: string;
+  studentName: string;
+  className: string;
+  division: string;
+  createdAt?: string;
+}
+

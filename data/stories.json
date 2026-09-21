@@ -1,5 +1,24 @@
 [
   {
+    "slug": "the-desert-fox-and-the-hidden-oasis",
+    "description": "A desert adventure exploring resilience and desert wildlife in Grade 4.",
+    "imageUrl": "https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=800",
+    "content": "Far out in the golden sands of the Thar Desert lived a quick and curious desert fox named Fennec. One sunny morning, Fennec noticed a trail of green leaves blown by the wind. Following the trail across the dunes, Fennec discovered a hidden oasis with sweet water and date palms, welcoming all the desert animals to drink and rest.",
+    "gradeId": "grade-4",
+    "studentName": "Tariq Anwer",
+    "keywords": [
+      "fox",
+      "desert",
+      "oasis",
+      "grade4"
+    ],
+    "moduleId": "mod-nature",
+    "title": "The Desert Fox and the Hidden Oasis",
+    "isPublished": true,
+    "id": "story-1790003819476",
+    "createdAt": "2026-09-21T15:16:59.476Z"
+  },
+  {
     "title": "The Courageous Dolphin of Chilika Lake",
     "studentName": "Zoya Patel",
     "slug": "the-courageous-dolphin-of-chilika-lake",
@@ -12,65 +31,5 @@
     "isPublished": true,
     "id": "story-1789285838253",
     "createdAt": "2026-09-13T07:50:38.253Z"
-  },
-  {
-    "id": "story-1",
-    "title": "Oliver the Little Owl Who Learned to Share",
-    "slug": "oliver-owl-learned-to-share",
-    "description": "Oliver loved his glossy pinecone collection. But when winter came, he discovered that sharing warmed his heart more than any pinecone could.",
-    "content": "Once upon a time, in the whispery canopy of Whispering Woods, lived a young owl named Oliver. Oliver had the smoothest feathers, the brightest eyes, and the grandest collection of glossy pinecones in the entire forest.\n\nEvery day, he would count them, polish them, and line them up. 'Mine, all mine!' he would hoot happily.\n\nOne chilly November afternoon, a tiny field mouse named Pip knocked on Oliver's branch. Pip was shivering, his little nose pink with cold. 'Excuse me, Oliver,' Pip squeaked. 'Could I borrow just one of your big pinecones? My family needs to build a firewall in our nest to block the bitter wind.'\n\nOliver hugged his pile tightly. 'No! These are my pinecones! Go find your own!' he said. Pip looked down sadly, hugged his tail, and scurried back down the oak tree.\n\nThat night, the North Wind blew a fierce storm. Oliver felt warm in his hollow, but he couldn't sleep. He kept thinking of Pip's tiny, shivering hands. Oliver looked at his hundreds of pinecones. They were cold and hard. They didn't feel very special anymore.\n\nWith a heavy sigh, Oliver loaded a basket with his five largest, glossiest pinecones. He spread his wings and flew down to the roots of the tree, where Pip's family lived.\n\nHe tapped on the root. When Pip's mother opened the door, Oliver handed her the basket. 'I brought these for your wall,' Oliver mumbled, looking at his feet.\n\nPip gasped with joy! 'Oliver, you saved us! Thank you!'\n\nPip's mother invited Oliver in for hot acorn cocoa. Sitting near the fire, Oliver watched the mouse family laugh and play. He felt a warm, fuzzy feeling spread from his beak to his toes. He realized that a pinecone tucked away was just a cold object, but a pinecone shared was a spark of friendship.\n\nFrom that day on, Oliver was known as the most generous owl in Whispering Woods, and his pinecones were always shared with anyone in need.",
-    "gradeId": "grade-1",
-    "moduleId": "mod-morals",
-    "imageUrl": "https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=800&auto=format&fit=crop",
-    "keywords": [
-      "sharing",
-      "kindness",
-      "friendship",
-      "owl",
-      "animals"
-    ],
-    "isPublished": true,
-    "createdAt": "2026-07-10T12:00:00Z",
-    "studentName": "Lucas Thompson"
-  },
-  {
-    "id": "story-2",
-    "title": "The Mystery of the Floating Leaf",
-    "slug": "mystery-of-the-floating-leaf",
-    "description": "Follow Maya on a sunny afternoon adventure as she discovers the magic of surface tension and water insects.",
-    "content": "Maya loved the stream at the edge of Grade 1's forest playground. One sunny Tuesday, she noticed something peculiar. A large yellow leaf had fallen onto the stream, and instead of sinking or just floating flat, a tiny water strider insect was standing right on top of it, gliding like a skater on ice!\n\n'How do you stay up there?' Maya asked, leaning in close.\n\nSuddenly, the leaf tapped against a rock. Maya saw a shiny droplet of water resting perfectly like a glass bead on the leaf's surface. It didn't spread out; it stayed in a tiny, perfect sphere. She touched the droplet with her finger—*pop!* It melted into the leaf.\n\nHer teacher, Mrs. Maple, walked over and smiled. 'That is the magic of surface tension, Maya. The water molecules at the top act like a tiny, invisible trampoline sheet. They hold hands very tightly!'\n\nMaya's eyes widened. 'Invisible hand-holders!' she laughed. She tried placing a small dry twig on the water. It floated. Then she tried a tiny pebble—it broke through the hands and went *plop!* straight to the bottom.\n\nShe learned that nature has wonderful balances. Some things are light enough to dance on the water's skin, while others dive deep. When she went home, she couldn't wait to tell her parents how the tiny water bugs hold their breath and skate along the invisible, tight-holding water hands.",
-    "gradeId": "grade-1",
-    "moduleId": "mod-nature",
-    "imageUrl": "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=800&auto=format&fit=crop",
-    "keywords": [
-      "nature",
-      "water",
-      "insects",
-      "science",
-      "curiosity"
-    ],
-    "isPublished": true,
-    "createdAt": "2026-07-09T10:30:00Z",
-    "studentName": "Maya Lin"
-  },
-  {
-    "id": "story-3",
-    "title": "Belief In Yourself",
-    "slug": "Belief-In-Yourself",
-    "description": "A story about Arav, who learns that confidence, consistency, and hard work can help us achieve our goals.",
-    "content": "One sunny morning, Arav’s school announced an exciting competition. Arav wanted to take part, but he felt a little nervous. I don’t think I can win,” he said sadly. His teacher smiled and said, “Arav, believe in yourself! Give it your best, and never be afraid to try. Arav listened to his teacher. Every day, he practised with great determination. Sometimes he made mistakes, but he never gave up. He kept trying and became better and better. Finally, the day of the competition arrived. Arav took a deep breath, smiled, and gave his best performance. When the results were announced, everyone cheered—Arav had won the competition! Arav was very happy. He thanked his teacher and learned an important lesson: with confidence, consistency, and hard work, we can achieve our goals. Moral: Believe in yourself, work hard, and never give up!",
-    "gradeId": "grade-1",
-    "moduleId": "mod-nature",
-    "imageUrl": "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=800&auto=format&fit=crop",
-    "keywords": [
-      "School",
-      "Competition",
-      "confidence",
-      "goals",
-      "consistency"
-    ],
-    "isPublished": true,
-    "createdAt": "2026-07-09T10:30:00Z",
-    "studentName": "Shaikh Fatima Alim"
   }
 ]

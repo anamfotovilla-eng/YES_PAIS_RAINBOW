@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Story, Grade, Module, AboutUsContent, ContactUsContent, FeedbackItem } from "../types";
+import { Story, Grade, Module, AboutUsContent, ContactUsContent, FeedbackItem, ShiningStar } from "../types";
 import {
   getStories,
+  fetchStoriesAsync,
   getGrades,
   getModules,
   getAboutContent,
@@ -20,6 +21,11 @@ import {
   updateFeedbackStatus,
   deleteFeedbackItem,
   resetAdminPasswordAsync,
+  getShiningStars,
+  fetchShiningStarsAsync,
+  addShiningStar,
+  updateShiningStar,
+  deleteShiningStar,
 } from "../lib/storage";
 import {
   BookOpen,
@@ -52,6 +58,9 @@ import {
   UploadCloud,
   Image as ImageIcon,
   KeyRound,
+  Star,
+  Award,
+  UserPlus,
 } from "lucide-react";
 
 interface AdminDashboardProps {
@@ -68,9 +77,21 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
   const [modules, setModules] = useState<Module[]>([]);
   const [about, setAbout] = useState<AboutUsContent | null>(null);
   const [contact, setContact] = useState<ContactUsContent | null>(null);
+  const [shiningStars, setShiningStars] = useState<ShiningStar[]>([]);
 
   // Active Admin View Tab
-  const [activeTab, setActiveTab] = useState<"stories" | "modules" | "pages" | "feedback">("stories");
+  const [activeTab, setActiveTab] = useState<"stories" | "modules" | "pages" | "feedback" | "stars">("stories");
+
+  // Shining Stars Management State
+  const [editingStar, setEditingStar] = useState<ShiningStar | null>(null);
+  const [isCreatingStar, setIsCreatingStar] = useState(false);
+  const [starToDelete, setStarToDelete] = useState<ShiningStar | null>(null);
+  const [starSearch, setStarSearch] = useState("");
+  const [starForm, setStarForm] = useState({
+    studentName: "",
+    className: "Grade 1",
+    division: "A",
+  });
 
   // Notifications
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -178,8 +199,88 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     setModules(getModules());
     setAbout(getAboutContent());
     setContact(getContactContent());
+    setShiningStars(getShiningStars());
     loadFeedback();
+    fetchStoriesAsync().then((fresh) => {
+      if (fresh) setStories(fresh);
+    });
+    fetchShiningStarsAsync().then((fresh) => {
+      if (fresh) setShiningStars(fresh);
+    });
   };
+
+  // --- SHINING STARS ACTIONS ---
+  const handleOpenCreateStar = () => {
+    setIsCreatingStar(true);
+    setEditingStar(null);
+    setStarForm({
+      studentName: "",
+      className: grades[0]?.name || "Grade 1",
+      division: "A",
+    });
+  };
+
+  const handleOpenEditStar = (star: ShiningStar) => {
+    setEditingStar(star);
+    setIsCreatingStar(false);
+    setStarForm({
+      studentName: star.studentName,
+      className: star.className,
+      division: star.division,
+    });
+  };
+
+  const handleSaveStar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!starForm.studentName.trim() || !starForm.className.trim() || !starForm.division.trim()) {
+      triggerToast("Student Name, Class, and Division are required.", "error");
+      return;
+    }
+
+    try {
+      if (editingStar) {
+        await updateShiningStar(editingStar.id, {
+          studentName: starForm.studentName.trim(),
+          className: starForm.className.trim(),
+          division: starForm.division.trim(),
+        });
+        triggerToast("Shining Star updated successfully!");
+      } else {
+        await addShiningStar({
+          studentName: starForm.studentName.trim(),
+          className: starForm.className.trim(),
+          division: starForm.division.trim(),
+        });
+        triggerToast("Shining Star added successfully!");
+      }
+      setIsCreatingStar(false);
+      setEditingStar(null);
+      refreshData();
+    } catch {
+      triggerToast("Failed to save Shining Star.", "error");
+    }
+  };
+
+  const handleDeleteStar = (id: string) => {
+    const target = shiningStars.find((s) => s.id === id);
+    if (target) {
+      setStarToDelete(target);
+    }
+  };
+
+  const handleConfirmDeleteStar = async () => {
+    if (!starToDelete) return;
+    const targetName = starToDelete.studentName;
+    await deleteShiningStar(starToDelete.id);
+    setStarToDelete(null);
+    triggerToast(`"${targetName}" removed from Shining Stars.`);
+    refreshData();
+  };
+
+  const handleCancelDeleteStar = () => {
+    setStarToDelete(null);
+  };
+
 
   const loadFeedback = async () => {
     setLoadingFeedback(true);
@@ -603,7 +704,7 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
       </div>
 
       {/* Stats Cards Section */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
         <div className="bg-white border border-natural-border rounded-2xl p-6 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-sans uppercase tracking-wider text-natural-sand font-bold">Total Stories</p>
@@ -633,10 +734,21 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
           <div>
             <p className="text-xs font-sans uppercase tracking-wider text-natural-sand font-bold">Active Grades</p>
             <h3 className="text-3xl font-bold font-serif text-natural-primary mt-1">{grades.length}</h3>
-            <p className="text-[10px] text-natural-muted mt-1">Grade 1 to Grade 5 navigation</p>
+            <p className="text-[10px] text-natural-muted mt-1">Grade 1 to Grade 10 navigation</p>
           </div>
           <div className="p-4 bg-natural-light rounded-2xl text-natural-primary">
             <Layers className="w-6 h-6" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-amber-200 rounded-2xl p-6 shadow-sm flex items-center justify-between bg-gradient-to-br from-amber-50/50 to-white">
+          <div>
+            <p className="text-xs font-sans uppercase tracking-wider text-amber-800 font-bold">Shining Stars ⭐</p>
+            <h3 className="text-3xl font-bold font-serif text-amber-600 mt-1">{shiningStars.length}</h3>
+            <p className="text-[10px] text-natural-muted mt-1">Top student storytellers</p>
+          </div>
+          <div className="p-4 bg-amber-100/80 rounded-2xl text-amber-600">
+            <Star className="w-6 h-6 fill-amber-500 text-amber-500" />
           </div>
         </div>
 
@@ -669,6 +781,24 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
           }`}
         >
           Manage Stories
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab("stars");
+            setIsCreatingStar(false);
+            setEditingStar(null);
+          }}
+          className={`flex items-center gap-2 px-5 py-3 font-sans font-bold text-sm tracking-tight border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === "stars"
+              ? "border-amber-500 text-amber-700 font-bold"
+              : "border-transparent text-natural-sand hover:text-natural-heading"
+          }`}
+        >
+          <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+          <span>Manage Shining Stars ⭐</span>
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+            {shiningStars.length}
+          </span>
         </button>
         <button
           onClick={() => {
@@ -1706,6 +1836,288 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* --- TAB 5: SHINING STARS --- */}
+      {activeTab === "stars" && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Top Bar: Intro, Search, and Create Button */}
+          <div className="bg-white border border-amber-200/90 rounded-2xl p-6 shadow-sm bg-gradient-to-r from-white via-amber-50/20 to-amber-50/40">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                  <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                  Homepage Showcase
+                </span>
+                <h2 className="text-xl font-bold font-serif text-[#322f82] mt-1.5 flex items-center gap-2">
+                  <span>Manage Shining Stars</span>
+                  <span>⭐</span>
+                </h2>
+                <p className="text-xs text-natural-muted mt-0.5">
+                  Showcase students who have written the best stories. These entries appear in the "Shining Stars" section on the homepage.
+                </p>
+              </div>
+
+              {!isCreatingStar && !editingStar && (
+                <button
+                  onClick={handleOpenCreateStar}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-sans font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Shining Star</span>
+                </button>
+              )}
+            </div>
+
+            {/* Form for Creating / Editing Shining Star */}
+            {(isCreatingStar || editingStar) && (
+              <form onSubmit={handleSaveStar} className="mt-6 pt-6 border-t border-amber-200/70 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[#322f82] flex items-center gap-2">
+                    <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                    <span>{editingStar ? "Edit Shining Star Details" : "Add New Shining Star"}</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingStar(false);
+                      setEditingStar(null);
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Student Name */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Student Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Zoya Patel"
+                      value={starForm.studentName}
+                      onChange={(e) => setStarForm({ ...starForm, studentName: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white"
+                    />
+                  </div>
+
+                  {/* Class */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Class *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Grade 3 or Class 3"
+                      value={starForm.className}
+                      onChange={(e) => setStarForm({ ...starForm, className: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white"
+                    />
+                  </div>
+
+                  {/* Division */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Division *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. A or Division A"
+                      value={starForm.division}
+                      onChange={(e) => setStarForm({ ...starForm, division: e.target.value })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingStar(false);
+                      setEditingStar(null);
+                    }}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{editingStar ? "Update Star" : "Save Shining Star"}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* List of Current Shining Stars */}
+          <div className="bg-white border border-natural-border rounded-2xl p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-3.5 w-4 h-4 text-natural-sand" />
+                <input
+                  type="text"
+                  placeholder="Search shining stars by name, class, division..."
+                  value={starSearch}
+                  onChange={(e) => setStarSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-natural-border bg-natural-bg/50 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-natural-heading placeholder-natural-sand"
+                />
+              </div>
+
+              <span className="text-xs font-bold text-natural-sand">
+                Total: {shiningStars.length} student{shiningStars.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            {/* Stars Table */}
+            {(() => {
+              const filtered = shiningStars.filter((s) => {
+                const q = starSearch.toLowerCase().trim();
+                if (!q) return true;
+                return (
+                  s.studentName.toLowerCase().includes(q) ||
+                  s.className.toLowerCase().includes(q) ||
+                  s.division.toLowerCase().includes(q)
+                );
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="py-12 text-center text-natural-sand border border-dashed border-natural-border rounded-xl">
+                    <Star className="w-10 h-10 text-amber-300 mx-auto mb-2 fill-amber-100" />
+                    <p className="font-semibold text-natural-heading">No Shining Stars Found</p>
+                    <p className="text-xs text-natural-muted mt-1 max-w-sm mx-auto">
+                      {starSearch ? "No students match your search criteria." : "Add students who have written outstanding stories to showcase them on the homepage."}
+                    </p>
+                    {!starSearch && (
+                      <button
+                        onClick={handleOpenCreateStar}
+                        className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-sans font-bold text-xs rounded-xl transition-all cursor-pointer shadow-xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add First Shining Star
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-natural-text border-collapse">
+                    <thead>
+                      <tr className="border-b border-natural-border/80 bg-amber-50/40 text-natural-muted text-xs font-sans font-bold uppercase tracking-wider">
+                        <th className="py-3 px-4">Student Name</th>
+                        <th className="py-3 px-4">Class</th>
+                        <th className="py-3 px-4">Division</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-natural-border/40">
+                      {filtered.map((star) => (
+                        <tr key={star.id} className="hover:bg-amber-50/20 transition-colors">
+                          <td className="py-3.5 px-4 font-semibold text-[#322f82] flex items-center gap-2">
+                            <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs shrink-0">
+                              ⭐
+                            </span>
+                            <span>{star.studentName}</span>
+                          </td>
+                          <td className="py-3.5 px-4 font-medium text-slate-700">
+                            <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 text-xs font-bold border border-slate-200">
+                              {star.className}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-medium text-amber-800">
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-100/70 text-amber-900 text-xs font-bold border border-amber-200">
+                              {star.division}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleOpenEditStar(star)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                                title="Edit Shining Star"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteStar(star.id)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="Remove Shining Star"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Shining Star Deletion Modal */}
+      {starToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCancelDeleteStar}
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-scaleIn text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shrink-0">
+                <Star className="w-5 h-5 fill-amber-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-800">
+                  Remove Shining Star Confirmation
+                </h3>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  Are you sure you want to remove <span className="font-bold text-slate-900">"{starToDelete.studentName}"</span> ({starToDelete.className}, {starToDelete.division}) from the Shining Stars section?
+                </p>
+                <p className="text-xs text-rose-600 font-medium mt-2 leading-relaxed">
+                  They will no longer be showcased in the Shining Stars section on the homepage.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleCancelDeleteStar}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteStar}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Yes, Remove Student
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

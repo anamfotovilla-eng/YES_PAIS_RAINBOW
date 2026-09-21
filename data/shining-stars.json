@@ -1,0 +1,23 @@
+[
+  {
+    "id": "star-1",
+    "studentName": "Zoya Patel",
+    "className": "Grade 3",
+    "division": "A",
+    "createdAt": "2026-09-21T15:14:28.501Z"
+  },
+  {
+    "id": "star-2",
+    "studentName": "Ayaan Shaikh",
+    "className": "Grade 5",
+    "division": "B",
+    "createdAt": "2026-09-21T15:14:28.501Z"
+  },
+  {
+    "id": "star-3",
+    "studentName": "Fatima Alim",
+    "className": "Grade 1",
+    "division": "A",
+    "createdAt": "2026-09-21T15:14:28.501Z"
+  }
+]
