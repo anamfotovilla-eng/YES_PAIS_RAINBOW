@@ -1,5 +1,19 @@
 [
   {
+    "id": "star-1790012507111-cf5r",
+    "studentName": "Noor Fatima",
+    "className": "Grade 2",
+    "division": "A",
+    "createdAt": "2026-09-21T17:41:47.111Z"
+  },
+  {
+    "id": "star-1790012348540-c5ic",
+    "studentName": "Aarav Sharma",
+    "className": "Grade 3",
+    "division": "B",
+    "createdAt": "2026-09-21T17:39:08.540Z"
+  },
+  {
     "id": "star-1",
     "studentName": "Zoya Patel",
     "className": "Grade 3",

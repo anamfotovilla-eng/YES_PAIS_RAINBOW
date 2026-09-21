@@ -1,16 +1,29 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 
 dotenv.config();
 
+const getDirname = (): string => {
+  try {
+    if (typeof __dirname !== "undefined") return __dirname;
+  } catch {}
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {}
+  return process.cwd();
+};
+const appDirname = getDirname();
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // Administrator security credentials
   const defaultAdminUsername = "YESIQRA@26";
@@ -51,36 +64,91 @@ async function startServer() {
     }
   ];
 
-  // Administrator security persistence
-  const DATA_DIR = path.join(process.cwd(), "data");
+  // --- ROBUST CANONICAL PERSISTENCE ENGINE ---
+  function resolveDataDir(): string {
+    if (process.env.DATA_DIR && process.env.DATA_DIR.trim().length > 0) {
+      const customDir = path.resolve(process.env.DATA_DIR);
+      if (!fs.existsSync(customDir)) fs.mkdirSync(customDir, { recursive: true });
+      return customDir;
+    }
+
+    const candidates = [
+      path.resolve(process.cwd(), "data"),
+      path.resolve(appDirname, "data"),
+      path.resolve(appDirname, "..", "data"),
+    ];
+
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) return cand;
+    }
+
+    const fallback = path.resolve(process.cwd(), "data");
+    if (!fs.existsSync(fallback)) {
+      fs.mkdirSync(fallback, { recursive: true });
+    }
+    return fallback;
+  }
+
+  const DATA_DIR = resolveDataDir();
   const SECURITY_FILE = path.join(DATA_DIR, "security.json");
 
-  function getPersistedAdminPassword(): string {
+  function safeWriteJsonFile(filePath: string, data: any): void {
     try {
-      if (fs.existsSync(SECURITY_FILE)) {
-        const raw = fs.readFileSync(SECURITY_FILE, "utf-8");
-        const data = JSON.parse(raw);
-        if (data.adminPassword) return data.adminPassword;
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
       }
-    } catch (e) {
-      console.error("Error reading security config:", e);
+      const tempPath = filePath + ".tmp";
+      const jsonString = JSON.stringify(data, null, 2);
+      fs.writeFileSync(tempPath, jsonString, "utf-8");
+      fs.renameSync(tempPath, filePath);
+
+      try {
+        fs.writeFileSync(filePath + ".bak", jsonString, "utf-8");
+      } catch {}
+    } catch (err) {
+      // Direct write fallback
+      try {
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+      } catch (fallbackErr) {
+        console.error(`Failed writing to ${filePath}:`, fallbackErr);
+      }
+    }
+  }
+
+  function safeReadJsonFile<T>(filePath: string, fallback: T): T {
+    try {
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, "utf-8");
+        return JSON.parse(raw) as T;
+      }
+    } catch (err) {
+      console.warn(`Error reading ${filePath}, trying backup:`, err);
+      const backupPath = filePath + ".bak";
+      try {
+        if (fs.existsSync(backupPath)) {
+          const rawBackup = fs.readFileSync(backupPath, "utf-8");
+          return JSON.parse(rawBackup) as T;
+        }
+      } catch {}
+    }
+    return fallback;
+  }
+
+  let securityCache: any = null;
+  function getPersistedAdminPassword(): string {
+    if (securityCache && securityCache.adminPassword) return securityCache.adminPassword;
+    const data = safeReadJsonFile<any>(SECURITY_FILE, null);
+    if (data && data.adminPassword) {
+      securityCache = data;
+      return data.adminPassword;
     }
     return currentAdminPassword;
   }
 
   function setPersistedAdminPassword(newPassword: string) {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(
-        SECURITY_FILE,
-        JSON.stringify({ adminPassword: newPassword, updatedAt: new Date().toISOString() }, null, 2),
-        "utf-8"
-      );
-    } catch (e) {
-      console.error("Error saving security config:", e);
-    }
+    securityCache = { adminPassword: newPassword, updatedAt: new Date().toISOString() };
+    safeWriteJsonFile(SECURITY_FILE, securityCache);
   }
 
   // Secure API routes
@@ -217,8 +285,9 @@ async function startServer() {
     res.json({ status: "ok", service: "Yespaistory Hub API" });
   });
 
-  // Story Management API (Persistent file-backed storage)
+  // Story Management API (Persistent file-backed storage with memory cache)
   const STORIES_FILE = path.join(DATA_DIR, "stories.json");
+  let storiesCache: any[] | null = null;
 
   // Default story slugs and IDs that should not appear on the user portal
   const DEFAULT_STORY_SLUGS = [
@@ -237,83 +306,60 @@ async function startServer() {
   function isDefaultStory(story: any): boolean {
     if (!story) return false;
     const id = String(story.id || "");
-    const slug = String(story.slug || "").toLowerCase();
     // Default IDs like story-1 through story-9
     if (/^story-[1-9]$/.test(id)) return true;
+    // Any timestamp-generated ID is an admin-created story
+    if (/^story-\d{10,}$/.test(id)) return false;
+    const slug = String(story.slug || "").toLowerCase();
     if (DEFAULT_STORY_SLUGS.includes(slug)) return true;
     return false;
   }
 
   function loadPersistentStories(): any[] {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      if (fs.existsSync(STORIES_FILE)) {
-        const raw = fs.readFileSync(STORIES_FILE, "utf-8");
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          // Filter out default stories so only admin-created stories remain
-          const adminOnlyStories = parsed.filter((s) => !isDefaultStory(s));
-          if (adminOnlyStories.length !== parsed.length) {
-            // Automatically clean stories.json without requiring manual editing
-            fs.writeFileSync(STORIES_FILE, JSON.stringify(adminOnlyStories, null, 2), "utf-8");
-          }
-          return adminOnlyStories;
-        }
-      }
-      // Never seed default stories - start with empty array
-      fs.writeFileSync(STORIES_FILE, JSON.stringify([], null, 2), "utf-8");
-      return [];
-    } catch (e) {
-      console.error("Error reading stories storage:", e);
-      return [];
+    if (storiesCache !== null) {
+      return storiesCache;
     }
+
+    const stored = safeReadJsonFile<any[]>(STORIES_FILE, []);
+    if (Array.isArray(stored)) {
+      const adminOnlyStories = stored.filter((s) => !isDefaultStory(s));
+      storiesCache = adminOnlyStories;
+      if (adminOnlyStories.length !== stored.length) {
+        safeWriteJsonFile(STORIES_FILE, adminOnlyStories);
+      }
+      return adminOnlyStories;
+    }
+
+    storiesCache = [];
+    safeWriteJsonFile(STORIES_FILE, []);
+    return [];
   }
 
   function savePersistentStories(stories: any[]) {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(STORIES_FILE, JSON.stringify(stories, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Error writing stories storage:", e);
-    }
+    storiesCache = stories;
+    safeWriteJsonFile(STORIES_FILE, stories);
   }
 
-  // Notification Management API (Persistent file-backed storage)
+  // Notification Management API (Persistent file-backed storage with memory cache)
   const NOTIFICATIONS_FILE = path.join(DATA_DIR, "notifications.json");
+  let notificationsCache: any[] | null = null;
 
   function loadPersistentNotifications(): any[] {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      if (fs.existsSync(NOTIFICATIONS_FILE)) {
-        const raw = fs.readFileSync(NOTIFICATIONS_FILE, "utf-8");
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-      fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify([], null, 2), "utf-8");
-      return [];
-    } catch (e) {
-      console.error("Error reading notifications storage:", e);
-      return [];
+    if (notificationsCache !== null) {
+      return notificationsCache;
     }
+    const stored = safeReadJsonFile<any[]>(NOTIFICATIONS_FILE, []);
+    if (Array.isArray(stored)) {
+      notificationsCache = stored;
+      return stored;
+    }
+    notificationsCache = [];
+    return [];
   }
 
   function savePersistentNotifications(notifications: any[]) {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Error writing notifications storage:", e);
-    }
+    notificationsCache = notifications;
+    safeWriteJsonFile(NOTIFICATIONS_FILE, notifications);
   }
 
   function createNotificationForStory(story: any) {
@@ -357,9 +403,18 @@ async function startServer() {
     }
 
     const stories = loadPersistentStories();
+    const id = storyData.id || `story-${Date.now()}`;
+    const slug =
+      storyData.slug ||
+      String(storyData.title)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)+/g, "");
+
     const newStory = {
       ...storyData,
-      id: storyData.id || `story-${Date.now()}`,
+      id,
+      slug,
       gradeId: storyData.gradeId || "grade-1",
       moduleId: storyData.moduleId || "mod-nature",
       createdAt: storyData.createdAt || new Date().toISOString(),
@@ -367,9 +422,9 @@ async function startServer() {
     };
 
     // Update if already exists, else unshift
-    const existingIndex = stories.findIndex((s) => s.id === newStory.id);
+    const existingIndex = stories.findIndex((s) => s.id === newStory.id || (newStory.slug && s.slug === newStory.slug));
     if (existingIndex >= 0) {
-      stories[existingIndex] = newStory;
+      stories[existingIndex] = { ...stories[existingIndex], ...newStory };
     } else {
       stories.unshift(newStory);
     }
@@ -488,62 +543,58 @@ async function startServer() {
     res.json({ success: true, message: "Notifications cleared." });
   });
 
-  // SHINING STARS API (Persistent file-backed storage)
+  // SHINING STARS API (Persistent file-backed storage with memory cache)
   const SHINING_STARS_FILE = path.join(DATA_DIR, "shining-stars.json");
+  let starsCache: any[] | null = null;
 
   function loadPersistentShiningStars(): any[] {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      if (fs.existsSync(SHINING_STARS_FILE)) {
-        const raw = fs.readFileSync(SHINING_STARS_FILE, "utf-8");
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-      // Initial exemplary shining stars
-      const initialStars = [
-        {
-          id: "star-1",
-          studentName: "Zoya Patel",
-          className: "Grade 3",
-          division: "A",
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: "star-2",
-          studentName: "Ayaan Shaikh",
-          className: "Grade 5",
-          division: "B",
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: "star-3",
-          studentName: "Fatima Alim",
-          className: "Grade 1",
-          division: "A",
-          createdAt: new Date().toISOString(),
-        },
-      ];
-      fs.writeFileSync(SHINING_STARS_FILE, JSON.stringify(initialStars, null, 2), "utf-8");
-      return initialStars;
-    } catch (e) {
-      console.error("Error reading shining stars storage:", e);
-      return [];
+    if (starsCache !== null) {
+      return starsCache;
     }
+
+    const initialStars = [
+      {
+        id: "star-1",
+        studentName: "Zoya Patel",
+        className: "Grade 3",
+        division: "A",
+        createdAt: "2026-09-21T15:14:28.501Z",
+      },
+      {
+        id: "star-2",
+        studentName: "Ayaan Shaikh",
+        className: "Grade 5",
+        division: "B",
+        createdAt: "2026-09-21T15:14:28.501Z",
+      },
+      {
+        id: "star-3",
+        studentName: "Fatima Alim",
+        className: "Grade 1",
+        division: "A",
+        createdAt: "2026-09-21T15:14:28.501Z",
+      },
+    ];
+
+    if (!fs.existsSync(SHINING_STARS_FILE)) {
+      starsCache = initialStars;
+      safeWriteJsonFile(SHINING_STARS_FILE, initialStars);
+      return initialStars;
+    }
+
+    const stored = safeReadJsonFile<any[]>(SHINING_STARS_FILE, initialStars);
+    if (Array.isArray(stored)) {
+      starsCache = stored;
+      return stored;
+    }
+
+    starsCache = initialStars;
+    return initialStars;
   }
 
   function savePersistentShiningStars(stars: any[]) {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(SHINING_STARS_FILE, JSON.stringify(stars, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Error writing shining stars storage:", e);
-    }
+    starsCache = stars;
+    safeWriteJsonFile(SHINING_STARS_FILE, stars);
   }
 
   app.get("/api/shining-stars", (req, res) => {
@@ -552,21 +603,26 @@ async function startServer() {
   });
 
   app.post("/api/shining-stars", (req, res) => {
-    const { studentName, className, division } = req.body || {};
+    const { studentName, className, division, id, createdAt } = req.body || {};
     if (!studentName || !className || !division) {
       return res.status(400).json({ success: false, message: "Student Name, Class, and Division are required." });
     }
 
     const stars = loadPersistentShiningStars();
     const newStar = {
-      id: req.body.id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       studentName: String(studentName).trim(),
       className: String(className).trim(),
       division: String(division).trim(),
-      createdAt: new Date().toISOString(),
+      createdAt: createdAt || new Date().toISOString(),
     };
 
-    stars.unshift(newStar);
+    const existingIdx = stars.findIndex((s) => s.id === newStar.id);
+    if (existingIdx >= 0) {
+      stars[existingIdx] = newStar;
+    } else {
+      stars.unshift(newStar);
+    }
     savePersistentShiningStars(stars);
     res.status(201).json({ success: true, star: newStar });
   });

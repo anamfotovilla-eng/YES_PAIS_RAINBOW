@@ -193,7 +193,7 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     refreshData();
   }, []);
 
-  const refreshData = () => {
+  const refreshData = async () => {
     setStories(getStories());
     setGrades(getGrades());
     setModules(getModules());
@@ -201,15 +201,18 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     setContact(getContactContent());
     setShiningStars(getShiningStars());
     loadFeedback();
-    fetchStoriesAsync().then((fresh) => {
-      if (fresh) setStories(fresh);
-    });
-    fetchShiningStarsAsync().then((fresh) => {
-      if (fresh) setShiningStars(fresh);
-    });
+    const [freshStories, freshStars] = await Promise.all([
+      fetchStoriesAsync().catch(() => null),
+      fetchShiningStarsAsync().catch(() => null),
+    ]);
+    if (freshStories) setStories(freshStories);
+    if (freshStars) setShiningStars(freshStars);
   };
 
   // --- SHINING STARS ACTIONS ---
+  const [isSavingStar, setIsSavingStar] = useState(false);
+  const [isSavingStory, setIsSavingStory] = useState(false);
+
   const handleOpenCreateStar = () => {
     setIsCreatingStar(true);
     setEditingStar(null);
@@ -237,6 +240,7 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
       return;
     }
 
+    setIsSavingStar(true);
     try {
       if (editingStar) {
         await updateShiningStar(editingStar.id, {
@@ -255,9 +259,11 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
       }
       setIsCreatingStar(false);
       setEditingStar(null);
-      refreshData();
+      await refreshData();
     } catch {
       triggerToast("Failed to save Shining Star.", "error");
+    } finally {
+      setIsSavingStar(false);
     }
   };
 
@@ -274,7 +280,7 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     await deleteShiningStar(starToDelete.id);
     setStarToDelete(null);
     triggerToast(`"${targetName}" removed from Shining Stars.`);
-    refreshData();
+    await refreshData();
   };
 
   const handleCancelDeleteStar = () => {
@@ -467,7 +473,7 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     });
   };
 
-  const handleSaveStory = (e: React.FormEvent) => {
+  const handleSaveStory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!storyForm.title.trim() || !storyForm.content.trim()) {
       triggerToast("Story Title and Full Content are required", "error");
@@ -487,11 +493,11 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     const finalImageUrl = storyForm.imageUrl.trim() || DEFAULT_STORY_IMAGE;
 
     const storyPayload = {
-      title: storyForm.title,
-      studentName: storyForm.studentName,
+      title: storyForm.title.trim(),
+      studentName: storyForm.studentName.trim(),
       slug,
-      description: storyForm.description,
-      content: storyForm.content,
+      description: storyForm.description.trim(),
+      content: storyForm.content.trim(),
       gradeId: storyForm.gradeId,
       moduleId: storyForm.moduleId,
       imageUrl: finalImageUrl,
@@ -499,19 +505,23 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
       isPublished: storyForm.isPublished,
     };
 
+    setIsSavingStory(true);
     try {
       if (editingStory) {
-        updateStory(editingStory.id, storyPayload);
+        await updateStory(editingStory.id, storyPayload);
         triggerToast("Story updated successfully!");
       } else {
-        addStory(storyPayload);
+        await addStory(storyPayload);
         triggerToast("Story created successfully!");
       }
       setIsCreatingStory(false);
       setEditingStory(null);
-      refreshData();
+      await refreshData();
     } catch (err) {
+      console.error("Error saving story:", err);
       triggerToast("Failed to save story.", "error");
+    } finally {
+      setIsSavingStory(false);
     }
   };
 
@@ -520,18 +530,19 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     if (target) {
       setStoryToDelete(target);
     } else {
-      deleteStory(id);
-      triggerToast("Story deleted.");
-      refreshData();
+      deleteStory(id).then(() => {
+        triggerToast("Story deleted.");
+        refreshData();
+      });
     }
   };
 
-  const handleConfirmDeleteStory = () => {
+  const handleConfirmDeleteStory = async () => {
     if (!storyToDelete) return;
     const targetId = storyToDelete.id;
     const targetTitle = storyToDelete.title;
 
-    deleteStory(targetId);
+    await deleteStory(targetId);
 
     if (editingStory && editingStory.id === targetId) {
       setEditingStory(null);
@@ -540,17 +551,17 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
 
     setStoryToDelete(null);
     triggerToast(`"${targetTitle}" deleted successfully.`);
-    refreshData();
+    await refreshData();
   };
 
   const handleCancelDeleteStory = () => {
     setStoryToDelete(null);
   };
 
-  const handleTogglePublish = (story: Story) => {
-    updateStory(story.id, { isPublished: !story.isPublished });
+  const handleTogglePublish = async (story: Story) => {
+    await updateStory(story.id, { isPublished: !story.isPublished });
     triggerToast(story.isPublished ? "Story unpublished" : "Story published!");
-    refreshData();
+    await refreshData();
   };
 
   // --- MODULE ACTIONS ---
@@ -1338,10 +1349,20 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                   </button>
                   <button
                     type="submit"
-                    className="flex items-center gap-1.5 px-6 py-2 bg-natural-primary hover:bg-natural-heading text-white font-sans font-bold text-xs rounded-xl transition-all cursor-pointer shadow-sm"
+                    disabled={isSavingStory}
+                    className="flex items-center gap-1.5 px-6 py-2 bg-natural-primary hover:bg-natural-heading text-white font-sans font-bold text-xs rounded-xl transition-all cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Save className="w-3.5 h-3.5" />
-                    Save Story
+                    {isSavingStory ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Saving to Database...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-3.5 h-3.5" />
+                        Save Story
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -1950,10 +1971,20 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+                    disabled={isSavingStar}
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Check className="w-4 h-4" />
-                    <span>{editingStar ? "Update Star" : "Save Shining Star"}</span>
+                    {isSavingStar ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Saving to Database...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>{editingStar ? "Update Star" : "Save Shining Star"}</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </form>

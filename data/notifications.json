@@ -1,5 +1,23 @@
 [
   {
+    "id": "notif-1790012507036",
+    "title": "New Story Published! 📚",
+    "message": "\"The Magic Compass of Noor\" by Noor Fatima is now available in the library!",
+    "storyId": "story-1790012507024",
+    "storySlug": "the-magic-compass-of-noor",
+    "createdAt": "2026-09-21T17:41:47.036Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-1790012348321",
+    "title": "New Story Published! 📚",
+    "message": "\"Persistent Forest Journey\" by Aarav Sharma is now available in the library!",
+    "storyId": "story-1790012348307",
+    "storySlug": "persistent-forest-journey",
+    "createdAt": "2026-09-21T17:39:08.321Z",
+    "isRead": false
+  },
+  {
     "id": "notif-1790003819477",
     "title": "New Story Published! 📚",
     "message": "\"The Desert Fox and the Hidden Oasis\" by Tariq Anwer is now available in the library!",

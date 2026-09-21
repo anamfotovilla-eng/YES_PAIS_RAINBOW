@@ -31,8 +31,11 @@ const DEFAULT_STORY_SLUGS = [
 export const isDefaultStory = (s: Story): boolean => {
   if (!s) return false;
   const id = String(s.id || "");
-  const slug = String(s.slug || "").toLowerCase();
+  // Default stories from sampleData had id "story-1" through "story-9"
   if (/^story-[1-9]$/.test(id)) return true;
+  // Any timestamp-generated ID is an admin-created story
+  if (/^story-\d{10,}$/.test(id)) return false;
+  const slug = String(s.slug || "").toLowerCase();
   if (DEFAULT_STORY_SLUGS.includes(slug)) return true;
   return false;
 };
@@ -233,6 +236,13 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
       if (data.stories && Array.isArray(data.stories)) {
         const cleanStories = data.stories.filter((s: Story) => !isDefaultStory(s));
         setLocalStorage(KEYS.STORIES, cleanStories);
+        // Clear deletedIds that exist on the server so valid stories are never hidden
+        const serverIds = new Set(cleanStories.map((s: Story) => s.id));
+        const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+        const activeDeleted = deletedIds.filter((id) => !serverIds.has(id));
+        if (activeDeleted.length !== deletedIds.length) {
+          setLocalStorage(KEYS.DELETED_STORIES, activeDeleted);
+        }
         return cleanStories;
       }
     }
@@ -242,25 +252,60 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
   return getStories();
 };
 
-// Story Helpers
-export const addStory = (story: Omit<Story, "id" | "createdAt">): Story => {
-  const stories = getStories();
+// Story Helpers (Server Authoritative)
+export const addStory = async (story: Omit<Story, "id" | "createdAt">): Promise<Story> => {
+  const newId = `story-${Date.now()}`;
+  const slug =
+    story.slug ||
+    story.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "");
+
   const newStory: Story = {
     ...story,
-    id: `story-${Date.now()}`,
+    id: newId,
+    slug,
     createdAt: new Date().toISOString(),
   };
-  stories.unshift(newStory);
-  saveStories(stories);
 
-  // Automatically sync to backend server disk
-  fetch("/api/stories", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(newStory),
-  }).catch((err) => console.warn("Failed to persist new story to server API:", err));
+  try {
+    const res = await fetch("/api/stories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newStory),
+    });
 
-  // Automatically create notification for the newly added story if published
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.story) {
+        const current = getStories();
+        const updated = [data.story, ...current.filter((s) => s.id !== data.story.id)];
+        saveStories(updated);
+
+        if (data.story.isPublished) {
+          addNotification(
+            "New Story Added! 📚",
+            `"${data.story.title}" is now available in the library!`,
+            data.story.id,
+            data.story.slug
+          );
+        }
+        return data.story;
+      }
+    } else {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.message || `Server returned HTTP ${res.status}`);
+    }
+  } catch (err) {
+    console.warn("Server API persist warning, caching locally:", err);
+  }
+
+  // Fallback local persistence
+  const current = getStories();
+  const updated = [newStory, ...current.filter((s) => s.id !== newStory.id)];
+  saveStories(updated);
+
   if (newStory.isPublished) {
     addNotification(
       "New Story Added! 📚",
@@ -273,50 +318,73 @@ export const addStory = (story: Omit<Story, "id" | "createdAt">): Story => {
   return newStory;
 };
 
-export const updateStory = (id: string, updatedData: Partial<Story>): Story => {
+export const updateStory = async (id: string, updatedData: Partial<Story>): Promise<Story> => {
   const stories = getStories();
   const index = stories.findIndex((s) => s.id === id);
-  if (index === -1) throw new Error("Story not found");
-  
-  const oldStory = stories[index];
-  const updatedStory = { ...oldStory, ...updatedData };
-  stories[index] = updatedStory;
-  saveStories(stories);
+  const oldStory = index !== -1 ? stories[index] : null;
+  const wasPublished = oldStory ? Boolean(oldStory.isPublished) : false;
 
-  // Automatically sync update to backend server disk
-  fetch(`/api/stories/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(updatedStory),
-  }).catch((err) => console.warn("Failed to persist updated story to server API:", err));
+  const mergedStory = oldStory ? { ...oldStory, ...updatedData } : ({ id, ...updatedData } as Story);
 
-  // If story was NOT published but is NOW published, trigger notification
-  if (!oldStory.isPublished && updatedStory.isPublished) {
+  try {
+    const res = await fetch(`/api/stories/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mergedStory),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.story) {
+        const current = getStories();
+        const updatedList = current.map((s) => (s.id === id ? data.story : s));
+        saveStories(updatedList);
+
+        if (!wasPublished && data.story.isPublished) {
+          addNotification(
+            "New Story Published! 📚",
+            `"${data.story.title}" is now available in the library!`,
+            data.story.id,
+            data.story.slug
+          );
+        }
+        return data.story;
+      }
+    }
+  } catch (err) {
+    console.warn("Server API update warning, saving locally:", err);
+  }
+
+  // Fallback local update
+  if (index !== -1) {
+    stories[index] = mergedStory;
+    saveStories(stories);
+  }
+
+  if (!wasPublished && mergedStory.isPublished) {
     addNotification(
       "New Story Published! 📚",
-      `"${updatedStory.title}" is now available in the library!`,
-      updatedStory.id,
-      updatedStory.slug
+      `"${mergedStory.title}" is now available in the library!`,
+      mergedStory.id,
+      mergedStory.slug
     );
   }
 
-  return updatedStory;
+  return mergedStory;
 };
 
-export const deleteStory = (id: string): void => {
-  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-  if (!deletedIds.includes(id)) {
-    deletedIds.push(id);
-    setLocalStorage(KEYS.DELETED_STORIES, deletedIds);
-  }
-  const current = getLocalStorage<Story[]>(KEYS.STORIES, []);
-  const filtered = current.filter((s) => s.id !== id && !deletedIds.includes(s.id) && !isDefaultStory(s));
+export const deleteStory = async (id: string): Promise<void> => {
+  const current = getStories();
+  const filtered = current.filter((s) => s.id !== id);
   saveStories(filtered);
 
-  // Automatically sync deletion to backend server disk
-  fetch(`/api/stories/${id}`, {
-    method: "DELETE",
-  }).catch((err) => console.warn("Failed to sync deletion to server API:", err));
+  try {
+    await fetch(`/api/stories/${id}`, {
+      method: "DELETE",
+    });
+  } catch (err) {
+    console.warn("Failed to delete story on server API:", err);
+  }
 };
 
 
@@ -622,14 +690,11 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
 };
 
 export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">): Promise<ShiningStar> => {
-  const stars = getShiningStars();
   const newStar: ShiningStar = {
     ...star,
     id: `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     createdAt: new Date().toISOString(),
   };
-  stars.unshift(newStar);
-  saveShiningStars(stars);
 
   try {
     const res = await fetch("/api/shining-stars", {
@@ -639,40 +704,58 @@ export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.star) return data.star;
+      if (data && data.star) {
+        const current = getShiningStars();
+        const updated = [data.star, ...current.filter((s) => s.id !== data.star.id)];
+        saveShiningStars(updated);
+        return data.star;
+      }
     }
   } catch (err) {
     console.warn("Failed to persist shining star to server API:", err);
   }
 
+  const current = getShiningStars();
+  const updated = [newStar, ...current.filter((s) => s.id !== newStar.id)];
+  saveShiningStars(updated);
   return newStar;
 };
 
 export const updateShiningStar = async (id: string, updatedData: Partial<ShiningStar>): Promise<ShiningStar> => {
-  const stars = getShiningStars();
-  const index = stars.findIndex((s) => s.id === id);
-  if (index === -1) throw new Error("Shining star not found");
-
-  const updated = { ...stars[index], ...updatedData };
-  stars[index] = updated;
-  saveShiningStars(stars);
+  const current = getShiningStars();
+  const index = current.findIndex((s) => s.id === id);
+  const updated: ShiningStar = index !== -1
+    ? { ...current[index], ...updatedData }
+    : ({ id, studentName: "", className: "", division: "", createdAt: new Date().toISOString(), ...updatedData } as ShiningStar);
 
   try {
-    await fetch(`/api/shining-stars/${id}`, {
+    const res = await fetch(`/api/shining-stars/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
     });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.star) {
+        const fresh = current.map((s) => (s.id === id ? data.star : s));
+        saveShiningStars(fresh);
+        return data.star;
+      }
+    }
   } catch (err) {
     console.warn("Failed to sync shining star update to server API:", err);
   }
 
+  if (index !== -1) {
+    current[index] = updated;
+    saveShiningStars(current);
+  }
   return updated;
 };
 
 export const deleteShiningStar = async (id: string): Promise<void> => {
-  const stars = getShiningStars();
-  const filtered = stars.filter((s) => s.id !== id);
+  const current = getShiningStars();
+  const filtered = current.filter((s) => s.id !== id);
   saveShiningStars(filtered);
 
   try {
