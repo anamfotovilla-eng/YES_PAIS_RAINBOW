@@ -15,7 +15,7 @@ const KEYS = {
 };
 
 // Helper to identify default/sample stories that should never appear on the user portal
-const DEFAULT_STORY_SLUGS = [
+const LEGACY_DEFAULT_STORY_SLUGS = [
   "oliver-owl-learned-to-share",
   "mystery-of-the-floating-leaf",
   "moons-lost-nightcap",
@@ -25,18 +25,21 @@ const DEFAULT_STORY_SLUGS = [
   "wood-wide-web-trees-talk",
   "quantum-compass",
   "riddle-golden-gate",
-  "belief-in-yourself",
+  "the-whispering-banyan",
 ];
 
 export const isDefaultStory = (s: Story): boolean => {
   if (!s) return false;
   const id = String(s.id || "");
-  // Default stories from sampleData had id "story-1" through "story-9"
+  // Default template story IDs from sampleData had id "story-1" through "story-9"
   if (/^story-[1-9]$/.test(id)) return true;
-  // Any timestamp-generated ID is an admin-created story
-  if (/^story-\d{10,}$/.test(id)) return false;
+  // Hardcoded sample story ID from previous clean state
+  if (id === "story-1790013162299") return true;
   const slug = String(s.slug || "").toLowerCase();
-  if (DEFAULT_STORY_SLUGS.includes(slug)) return true;
+  if (slug === "the-whispering-banyan") return true;
+  // Any timestamp-generated ID is an admin-created story and MUST NOT be blocked
+  if (/^story-\d{10,}$/.test(id)) return false;
+  if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
   return false;
 };
 
@@ -227,32 +230,62 @@ export const clearAllNotificationsAsync = async (): Promise<void> => {
   } catch {}
 };
 
-// Server API sync for stories
+// Server API sync for stories with robust bidirectional reconciliation
 export const fetchStoriesAsync = async (): Promise<Story[]> => {
+  const localStories = getStories();
+
   try {
+    // If client has local custom stories, reconcile with server
+    if (localStories.length > 0) {
+      const syncRes = await fetch("/api/stories/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientStories: localStories }),
+      });
+      if (syncRes.ok) {
+        const syncData = await syncRes.json();
+        if (syncData && syncData.stories && Array.isArray(syncData.stories)) {
+          const cleanStories = syncData.stories.filter((s: Story) => !isDefaultStory(s));
+          setLocalStorage(KEYS.STORIES, cleanStories);
+          return cleanStories;
+        }
+      }
+    }
+
     const res = await fetch("/api/stories");
     if (res.ok) {
       const data = await res.json();
       if (data.stories && Array.isArray(data.stories)) {
-        const cleanStories = data.stories.filter((s: Story) => !isDefaultStory(s));
-        setLocalStorage(KEYS.STORIES, cleanStories);
-        // Clear deletedIds that exist on the server so valid stories are never hidden
-        const serverIds = new Set(cleanStories.map((s: Story) => s.id));
-        const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-        const activeDeleted = deletedIds.filter((id) => !serverIds.has(id));
-        if (activeDeleted.length !== deletedIds.length) {
-          setLocalStorage(KEYS.DELETED_STORIES, activeDeleted);
+        const serverCleanStories = data.stories.filter((s: Story) => !isDefaultStory(s));
+        
+        // Merge server stories with any local custom stories not yet on server
+        const serverIds = new Set(serverCleanStories.map((s: Story) => s.id));
+        const unsyncedLocal = localStories.filter(
+          (local) => !serverIds.has(local.id) && !isDefaultStory(local)
+        );
+
+        const unifiedStories = [...serverCleanStories, ...unsyncedLocal];
+        setLocalStorage(KEYS.STORIES, unifiedStories);
+
+        // Background sync any unsynced local stories to server
+        if (unsyncedLocal.length > 0) {
+          fetch("/api/stories/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientStories: unsyncedLocal }),
+          }).catch(() => {});
         }
-        return cleanStories;
+
+        return unifiedStories;
       }
     }
   } catch (err) {
     // Graceful fallback to client storage
   }
-  return getStories();
+  return localStories;
 };
 
-// Story Helpers (Server Authoritative)
+// Story Helpers (Client resilient & server synced)
 export const addStory = async (story: Omit<Story, "id" | "createdAt">): Promise<Story> => {
   const newId = `story-${Date.now()}`;
   const slug =
@@ -269,39 +302,7 @@ export const addStory = async (story: Omit<Story, "id" | "createdAt">): Promise<
     createdAt: new Date().toISOString(),
   };
 
-  try {
-    const res = await fetch("/api/stories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newStory),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.story) {
-        const current = getStories();
-        const updated = [data.story, ...current.filter((s) => s.id !== data.story.id)];
-        saveStories(updated);
-
-        if (data.story.isPublished) {
-          addNotification(
-            "New Story Added! 📚",
-            `"${data.story.title}" is now available in the library!`,
-            data.story.id,
-            data.story.slug
-          );
-        }
-        return data.story;
-      }
-    } else {
-      const errData = await res.json().catch(() => null);
-      throw new Error(errData?.message || `Server returned HTTP ${res.status}`);
-    }
-  } catch (err) {
-    console.warn("Server API persist warning, caching locally:", err);
-  }
-
-  // Fallback local persistence
+  // 1. Immediately save to client localStorage so it is never lost
   const current = getStories();
   const updated = [newStory, ...current.filter((s) => s.id !== newStory.id)];
   saveStories(updated);
@@ -313,6 +314,27 @@ export const addStory = async (story: Omit<Story, "id" | "createdAt">): Promise<
       newStory.id,
       newStory.slug
     );
+  }
+
+  // 2. Persist to server API
+  try {
+    const res = await fetch("/api/stories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newStory),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.story) {
+        const freshCurrent = getStories();
+        const freshUpdated = [data.story, ...freshCurrent.filter((s) => s.id !== data.story.id)];
+        saveStories(freshUpdated);
+        return data.story;
+      }
+    }
+  } catch (err) {
+    console.warn("Server API persist warning, cached locally:", err);
   }
 
   return newStory;

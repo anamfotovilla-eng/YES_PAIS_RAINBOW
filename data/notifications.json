@@ -1,38 +1,20 @@
 [
   {
-    "id": "notif-1790013162303",
+    "id": "notif-1790102899999",
     "title": "New Story Published! 📚",
-    "message": "\"The Whispering Banyan\" by Ayaan Khan is now available in the library!",
-    "storyId": "story-1790013162299",
-    "storySlug": "the-whispering-banyan",
-    "createdAt": "2026-09-21T17:52:42.303Z",
+    "message": "\"Belief In Yourself\" by Shaikh Fatima Alim is now available in the library!",
+    "storyId": "story-1790102899999",
+    "storySlug": "belief-in-yourself",
+    "createdAt": "2026-09-22T18:46:50.000Z",
     "isRead": false
   },
   {
-    "id": "notif-1790012507036",
+    "id": "notif-1790102765374",
     "title": "New Story Published! 📚",
-    "message": "\"The Magic Compass of Noor\" by Noor Fatima is now available in the library!",
-    "storyId": "story-1790012507024",
-    "storySlug": "the-magic-compass-of-noor",
-    "createdAt": "2026-09-21T17:41:47.036Z",
+    "message": "\"The Courageous Dolphin\" by Zoya Patel is now available in the library!",
+    "storyId": "story-1790102765374",
+    "storySlug": "the-courageous-dolphin",
+    "createdAt": "2026-09-22T18:46:05.375Z",
     "isRead": false
-  },
-  {
-    "id": "notif-1790012348321",
-    "title": "New Story Published! 📚",
-    "message": "\"Persistent Forest Journey\" by Aarav Sharma is now available in the library!",
-    "storyId": "story-1790012348307",
-    "storySlug": "persistent-forest-journey",
-    "createdAt": "2026-09-21T17:39:08.321Z",
-    "isRead": false
-  },
-  {
-    "id": "notif-1790003819477",
-    "title": "New Story Published! 📚",
-    "message": "\"The Desert Fox and the Hidden Oasis\" by Tariq Anwer is now available in the library!",
-    "storyId": "story-1790003819476",
-    "storySlug": "the-desert-fox-and-the-hidden-oasis",
-    "createdAt": "2026-09-21T15:16:59.477Z",
-    "isRead": true
   }
 ]

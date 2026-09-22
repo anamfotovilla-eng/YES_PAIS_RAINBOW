@@ -98,21 +98,13 @@ async function startServer() {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const tempPath = filePath + ".tmp";
       const jsonString = JSON.stringify(data, null, 2);
-      fs.writeFileSync(tempPath, jsonString, "utf-8");
-      fs.renameSync(tempPath, filePath);
-
+      fs.writeFileSync(filePath, jsonString, "utf-8");
       try {
         fs.writeFileSync(filePath + ".bak", jsonString, "utf-8");
       } catch {}
     } catch (err) {
-      // Direct write fallback
-      try {
-        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-      } catch (fallbackErr) {
-        console.error(`Failed writing to ${filePath}:`, fallbackErr);
-      }
+      console.error(`Failed writing to ${filePath}:`, err);
     }
   }
 
@@ -290,7 +282,8 @@ async function startServer() {
   let storiesCache: any[] | null = null;
 
   // Default story slugs and IDs that should not appear on the user portal
-  const DEFAULT_STORY_SLUGS = [
+  // Default story slugs and IDs that should never appear on the user portal
+  const LEGACY_DEFAULT_STORY_SLUGS = [
     "oliver-owl-learned-to-share",
     "mystery-of-the-floating-leaf",
     "moons-lost-nightcap",
@@ -300,18 +293,21 @@ async function startServer() {
     "wood-wide-web-trees-talk",
     "quantum-compass",
     "riddle-golden-gate",
-    "belief-in-yourself",
+    "the-whispering-banyan",
   ];
 
   function isDefaultStory(story: any): boolean {
     if (!story) return false;
     const id = String(story.id || "");
-    // Default IDs like story-1 through story-9
+    // Default template story IDs from sampleData had id "story-1" through "story-9"
     if (/^story-[1-9]$/.test(id)) return true;
-    // Any timestamp-generated ID is an admin-created story
-    if (/^story-\d{10,}$/.test(id)) return false;
+    // Hardcoded sample story ID from previous clean state
+    if (id === "story-1790013162299") return true;
     const slug = String(story.slug || "").toLowerCase();
-    if (DEFAULT_STORY_SLUGS.includes(slug)) return true;
+    if (slug === "the-whispering-banyan") return true;
+    // Any timestamp-generated ID is an admin-created story and MUST NOT be blocked
+    if (/^story-\d{10,}$/.test(id)) return false;
+    if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
     return false;
   }
 
@@ -392,6 +388,33 @@ async function startServer() {
   // GET /api/stories - List all stories (only admin-created stories)
   app.get("/api/stories", (req, res) => {
     const stories = loadPersistentStories();
+    res.json({ success: true, stories });
+  });
+
+  // POST /api/stories/sync - Reconcile local client stories with server storage
+  app.post("/api/stories/sync", (req, res) => {
+    const { clientStories } = req.body || {};
+    const stories = loadPersistentStories();
+
+    if (Array.isArray(clientStories) && clientStories.length > 0) {
+      let updated = false;
+      for (const clientStory of clientStories) {
+        if (!clientStory || !clientStory.title || !clientStory.content) continue;
+        if (isDefaultStory(clientStory)) continue;
+        const id = clientStory.id || `story-${Date.now()}`;
+        const existingIdx = stories.findIndex(
+          (s) => s.id === id || (clientStory.slug && s.slug === clientStory.slug)
+        );
+        if (existingIdx === -1) {
+          stories.unshift({ ...clientStory, id });
+          updated = true;
+        }
+      }
+      if (updated) {
+        savePersistentStories(stories);
+      }
+    }
+
     res.json({ success: true, stories });
   });
 
