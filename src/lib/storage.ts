@@ -26,19 +26,31 @@ const LEGACY_DEFAULT_STORY_SLUGS = [
   "quantum-compass",
   "riddle-golden-gate",
   "the-whispering-banyan",
+  "belief-in-yourself",
+  "the-courageous-dolphin",
+  "the-courageous-dolphin-of-chilika-lake",
+  "persistent-forest-journey",
+  "the-desert-fox-and-the-hidden-oasis",
+];
+
+const LEGACY_DEFAULT_STORY_IDS = [
+  "story-1790102899999",
+  "story-1790102765374",
+  "story-1790013162299",
+  "story-1790012348307",
+  "story-1790003819476",
+  "story-1789285838253",
 ];
 
 export const isDefaultStory = (s: Story): boolean => {
   if (!s) return false;
   const id = String(s.id || "");
-  // Default template story IDs from sampleData had id "story-1" through "story-9"
-  if (/^story-[1-9]$/.test(id)) return true;
-  // Hardcoded sample story ID from previous clean state
-  if (id === "story-1790013162299") return true;
   const slug = String(s.slug || "").toLowerCase();
-  if (slug === "the-whispering-banyan") return true;
-  // Any timestamp-generated ID is an admin-created story and MUST NOT be blocked
-  if (/^story-\d{10,}$/.test(id)) return false;
+  // Template IDs: story-1 through story-10 (or any single/double digit id)
+  if (/^story-[0-9]{1,2}$/.test(id)) return true;
+  // Specific legacy sample IDs
+  if (LEGACY_DEFAULT_STORY_IDS.includes(id)) return true;
+  // Known legacy sample slugs
   if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
   return false;
 };
@@ -662,33 +674,32 @@ export const resetAdminPasswordAsync = async (
   return { success: true, message: "Administrator password has been reset successfully!" };
 };
 
-// Shining Stars Management (Showcases top student authors)
-const DEFAULT_SHINING_STARS: ShiningStar[] = [
-  {
-    id: "star-1",
-    studentName: "Zoya Patel",
-    className: "Grade 3",
-    division: "A",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "star-2",
-    studentName: "Ayaan Shaikh",
-    className: "Grade 5",
-    division: "B",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "star-3",
-    studentName: "Fatima Alim",
-    className: "Grade 1",
-    division: "A",
-    createdAt: new Date().toISOString(),
-  },
+// Shining Stars Management (Showcases top student authors added manually by admin)
+export const DEFAULT_SHINING_STARS: ShiningStar[] = [];
+
+const LEGACY_DEFAULT_STAR_IDS = [
+  "star-1",
+  "star-2",
+  "star-3",
+  "star-1790012507111-cf5r",
+  "star-1790012348540-c5ic",
 ];
 
+export const isDefaultStar = (s: ShiningStar): boolean => {
+  if (!s) return false;
+  const id = String(s.id || "");
+  if (/^star-[0-9]{1,2}$/.test(id)) return true;
+  if (LEGACY_DEFAULT_STAR_IDS.includes(id)) return true;
+  return false;
+};
+
 export const getShiningStars = (): ShiningStar[] => {
-  return getLocalStorage<ShiningStar[]>(KEYS.SHINING_STARS, DEFAULT_SHINING_STARS);
+  const current = getLocalStorage<ShiningStar[]>(KEYS.SHINING_STARS, []);
+  const filtered = current.filter((s) => !isDefaultStar(s));
+  if (filtered.length !== current.length) {
+    setLocalStorage(KEYS.SHINING_STARS, filtered);
+  }
+  return filtered;
 };
 
 export const saveShiningStars = (stars: ShiningStar[]): void => {
@@ -696,19 +707,57 @@ export const saveShiningStars = (stars: ShiningStar[]): void => {
 };
 
 export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
+  const localStars = getShiningStars();
+
   try {
+    // If client has local stars, reconcile with server
+    if (localStars.length > 0) {
+      const syncRes = await fetch("/api/shining-stars/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientStars: localStars }),
+      });
+      if (syncRes.ok) {
+        const syncData = await syncRes.json();
+        if (syncData && syncData.stars && Array.isArray(syncData.stars)) {
+          const cleanStars = syncData.stars.filter((s: ShiningStar) => !isDefaultStar(s));
+          setLocalStorage(KEYS.SHINING_STARS, cleanStars);
+          return cleanStars;
+        }
+      }
+    }
+
     const res = await fetch("/api/shining-stars");
     if (res.ok) {
       const data = await res.json();
       if (data.stars && Array.isArray(data.stars)) {
-        setLocalStorage(KEYS.SHINING_STARS, data.stars);
-        return data.stars;
+        const serverCleanStars = data.stars.filter((s: ShiningStar) => !isDefaultStar(s));
+
+        // Merge server stars with any local custom stars not yet on server
+        const serverIds = new Set(serverCleanStars.map((s: ShiningStar) => s.id));
+        const unsyncedLocal = localStars.filter(
+          (local) => !serverIds.has(local.id) && !isDefaultStar(local)
+        );
+
+        const unifiedStars = [...serverCleanStars, ...unsyncedLocal];
+        setLocalStorage(KEYS.SHINING_STARS, unifiedStars);
+
+        // Background sync any unsynced local stars to server
+        if (unsyncedLocal.length > 0) {
+          fetch("/api/shining-stars/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientStars: unsyncedLocal }),
+          }).catch(() => {});
+        }
+
+        return unifiedStars;
       }
     }
   } catch (err) {
     // Graceful fallback to client storage
   }
-  return getShiningStars();
+  return localStars;
 };
 
 export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">): Promise<ShiningStar> => {

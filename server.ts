@@ -281,8 +281,6 @@ async function startServer() {
   const STORIES_FILE = path.join(DATA_DIR, "stories.json");
   let storiesCache: any[] | null = null;
 
-  // Default story slugs and IDs that should not appear on the user portal
-  // Default story slugs and IDs that should never appear on the user portal
   const LEGACY_DEFAULT_STORY_SLUGS = [
     "oliver-owl-learned-to-share",
     "mystery-of-the-floating-leaf",
@@ -294,19 +292,31 @@ async function startServer() {
     "quantum-compass",
     "riddle-golden-gate",
     "the-whispering-banyan",
+    "belief-in-yourself",
+    "the-courageous-dolphin",
+    "the-courageous-dolphin-of-chilika-lake",
+    "persistent-forest-journey",
+    "the-desert-fox-and-the-hidden-oasis",
+  ];
+
+  const LEGACY_DEFAULT_STORY_IDS = [
+    "story-1790102899999",
+    "story-1790102765374",
+    "story-1790013162299",
+    "story-1790012348307",
+    "story-1790003819476",
+    "story-1789285838253",
   ];
 
   function isDefaultStory(story: any): boolean {
     if (!story) return false;
     const id = String(story.id || "");
-    // Default template story IDs from sampleData had id "story-1" through "story-9"
-    if (/^story-[1-9]$/.test(id)) return true;
-    // Hardcoded sample story ID from previous clean state
-    if (id === "story-1790013162299") return true;
     const slug = String(story.slug || "").toLowerCase();
-    if (slug === "the-whispering-banyan") return true;
-    // Any timestamp-generated ID is an admin-created story and MUST NOT be blocked
-    if (/^story-\d{10,}$/.test(id)) return false;
+    // Template IDs: story-1 through story-10 (or any single/double digit id)
+    if (/^story-[0-9]{1,2}$/.test(id)) return true;
+    // Specific legacy sample IDs
+    if (LEGACY_DEFAULT_STORY_IDS.includes(id)) return true;
+    // Known legacy sample slugs
     if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
     return false;
   }
@@ -570,49 +580,46 @@ async function startServer() {
   const SHINING_STARS_FILE = path.join(DATA_DIR, "shining-stars.json");
   let starsCache: any[] | null = null;
 
+  const LEGACY_DEFAULT_STAR_IDS = [
+    "star-1",
+    "star-2",
+    "star-3",
+    "star-1790012507111-cf5r",
+    "star-1790012348540-c5ic",
+  ];
+
+  function isDefaultStar(star: any): boolean {
+    if (!star) return false;
+    const id = String(star.id || "");
+    if (/^star-[0-9]{1,2}$/.test(id)) return true;
+    if (LEGACY_DEFAULT_STAR_IDS.includes(id)) return true;
+    return false;
+  }
+
   function loadPersistentShiningStars(): any[] {
     if (starsCache !== null) {
       return starsCache;
     }
 
-    const initialStars = [
-      {
-        id: "star-1",
-        studentName: "Zoya Patel",
-        className: "Grade 3",
-        division: "A",
-        createdAt: "2026-09-21T15:14:28.501Z",
-      },
-      {
-        id: "star-2",
-        studentName: "Ayaan Shaikh",
-        className: "Grade 5",
-        division: "B",
-        createdAt: "2026-09-21T15:14:28.501Z",
-      },
-      {
-        id: "star-3",
-        studentName: "Fatima Alim",
-        className: "Grade 1",
-        division: "A",
-        createdAt: "2026-09-21T15:14:28.501Z",
-      },
-    ];
-
     if (!fs.existsSync(SHINING_STARS_FILE)) {
-      starsCache = initialStars;
-      safeWriteJsonFile(SHINING_STARS_FILE, initialStars);
-      return initialStars;
+      starsCache = [];
+      safeWriteJsonFile(SHINING_STARS_FILE, []);
+      return [];
     }
 
-    const stored = safeReadJsonFile<any[]>(SHINING_STARS_FILE, initialStars);
+    const stored = safeReadJsonFile<any[]>(SHINING_STARS_FILE, []);
     if (Array.isArray(stored)) {
-      starsCache = stored;
-      return stored;
+      const cleanStars = stored.filter((s) => !isDefaultStar(s));
+      starsCache = cleanStars;
+      if (cleanStars.length !== stored.length) {
+        safeWriteJsonFile(SHINING_STARS_FILE, cleanStars);
+      }
+      return cleanStars;
     }
 
-    starsCache = initialStars;
-    return initialStars;
+    starsCache = [];
+    safeWriteJsonFile(SHINING_STARS_FILE, []);
+    return [];
   }
 
   function savePersistentShiningStars(stars: any[]) {
@@ -622,6 +629,31 @@ async function startServer() {
 
   app.get("/api/shining-stars", (req, res) => {
     const stars = loadPersistentShiningStars();
+    res.json({ success: true, stars });
+  });
+
+  // POST /api/shining-stars/sync - Reconcile client shining stars with server storage
+  app.post("/api/shining-stars/sync", (req, res) => {
+    const { clientStars } = req.body || {};
+    const stars = loadPersistentShiningStars();
+
+    if (Array.isArray(clientStars) && clientStars.length > 0) {
+      let updated = false;
+      for (const clientStar of clientStars) {
+        if (!clientStar || !clientStar.studentName || !clientStar.className || !clientStar.division) continue;
+        if (isDefaultStar(clientStar)) continue;
+        const id = clientStar.id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const existingIdx = stars.findIndex((s) => s.id === id);
+        if (existingIdx === -1) {
+          stars.unshift({ ...clientStar, id });
+          updated = true;
+        }
+      }
+      if (updated) {
+        savePersistentShiningStars(stars);
+      }
+    }
+
     res.json({ success: true, stars });
   });
 

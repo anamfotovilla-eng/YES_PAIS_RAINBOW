@@ -356,21 +356,37 @@ export default function App() {
 
         {/* Story Grid layout */}
         {paginatedStories.length === 0 ? (
-          <div className="bg-white border border-dashed border-natural-border rounded-3xl py-16 px-4 text-center">
-            <FilterX className="w-12 h-12 text-natural-sand mx-auto mb-4" />
-            <h3 className="text-lg font-bold font-serif text-natural-heading">No Stories Match Your Search</h3>
-            <p className="text-natural-muted text-sm max-w-md mx-auto mt-2">
-              Try searching for terms like "sharing", "water", "science", or select another grade filter.
-            </p>
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                setSelectedGradeId("all");
-              }}
-              className="mt-6 px-4 py-2 bg-natural-light hover:bg-natural-border text-natural-heading font-bold text-xs rounded-xl cursor-pointer"
-            >
-              Clear All Filters
-            </button>
+          <div className="bg-white border border-dashed border-natural-border rounded-3xl py-12 px-6 text-center max-w-2xl mx-auto my-6 shadow-xs">
+            {publicPublishedStories.length === 0 ? (
+              <div className="py-6">
+                <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200/60 shadow-xs">
+                  <BookOpen className="w-8 h-8 text-amber-600" />
+                </div>
+                <h3 className="text-xl sm:text-2xl font-bold font-serif text-[#322f82]">
+                  Our Student Library is Getting Ready 📚
+                </h3>
+                <p className="text-natural-muted text-sm sm:text-base max-w-md mx-auto mt-2.5 leading-relaxed font-sans">
+                  New stories written by our students will appear here as soon as they are added and published by the administration.
+                </p>
+              </div>
+            ) : (
+              <div className="py-6">
+                <FilterX className="w-12 h-12 text-natural-sand mx-auto mb-3" />
+                <h3 className="text-lg font-bold font-serif text-natural-heading">No Stories Match Your Search</h3>
+                <p className="text-natural-muted text-sm max-w-md mx-auto mt-2 font-sans">
+                  Try searching for another keyword or select a different class filter.
+                </p>
+                <button
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSelectedGradeId("all");
+                  }}
+                  className="mt-5 px-5 py-2.5 bg-[#322f82] hover:bg-[#252267] text-white font-sans font-bold text-xs rounded-xl cursor-pointer transition-all shadow-xs"
+                >
+                  Clear All Filters
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">

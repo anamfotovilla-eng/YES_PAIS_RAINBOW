@@ -986,6 +986,21 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                                 Add First Story for {grades.find((g) => g.id === selectedAdminGradeId)?.name}
                               </button>
                             </div>
+                          ) : stories.length === 0 ? (
+                            <div className="py-4">
+                              <BookOpen className="w-10 h-10 text-natural-primary/50 mx-auto mb-2" />
+                              <p className="font-bold text-natural-heading text-sm">No Stories in Library Yet</p>
+                              <p className="text-xs text-natural-muted mt-1 max-w-sm mx-auto">
+                                The catalog is empty. Click below to create and publish your first student story.
+                              </p>
+                              <button
+                                onClick={() => handleOpenCreateStory()}
+                                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-natural-primary hover:bg-natural-heading text-white font-sans font-bold text-xs rounded-xl transition-all cursor-pointer shadow-xs"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                Add First Story
+                              </button>
+                            </div>
                           ) : (
                             "No stories found matching your filter."
                           )}
