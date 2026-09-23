@@ -31,6 +31,10 @@ const LEGACY_DEFAULT_STORY_SLUGS = [
   "the-courageous-dolphin-of-chilika-lake",
   "persistent-forest-journey",
   "the-desert-fox-and-the-hidden-oasis",
+  "the-magic-compass-of-noor",
+  "magic-compass",
+  "xffg",
+  "abcd",
 ];
 
 const LEGACY_DEFAULT_STORY_IDS = [
@@ -46,14 +50,30 @@ export const isDefaultStory = (s: Story): boolean => {
   if (!s) return false;
   const id = String(s.id || "");
   const slug = String(s.slug || "").toLowerCase();
+  const title = String(s.title || "").toLowerCase();
   // Template IDs: story-1 through story-10 (or any single/double digit id)
   if (/^story-[0-9]{1,2}$/.test(id)) return true;
   // Specific legacy sample IDs
   if (LEGACY_DEFAULT_STORY_IDS.includes(id)) return true;
-  // Known legacy sample slugs
+  // Known legacy sample slugs or titles
   if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
+  if (title === "the magic compass of noor" || title === "xffg" || title === "abcd") return true;
   return false;
 };
+
+// Automatic one-time client storage migration: purge any stale test data from older builds
+const DB_CLEAN_VERSION = "yespaistory_clean_v5";
+if (typeof window !== "undefined") {
+  try {
+    if (!localStorage.getItem(DB_CLEAN_VERSION)) {
+      localStorage.removeItem(KEYS.STORIES);
+      localStorage.removeItem(KEYS.SHINING_STARS);
+      localStorage.removeItem(KEYS.NOTIFICATIONS);
+      localStorage.removeItem(KEYS.DELETED_STORIES);
+      localStorage.setItem(DB_CLEAN_VERSION, "true");
+    }
+  } catch {}
+}
 
 // Helpers
 const getLocalStorage = <T>(key: string, defaultValue: T): T => {
@@ -242,59 +262,22 @@ export const clearAllNotificationsAsync = async (): Promise<void> => {
   } catch {}
 };
 
-// Server API sync for stories with robust bidirectional reconciliation
+// Server API sync for stories (Server file-backed storage is authoritative)
 export const fetchStoriesAsync = async (): Promise<Story[]> => {
-  const localStories = getStories();
-
   try {
-    // If client has local custom stories, reconcile with server
-    if (localStories.length > 0) {
-      const syncRes = await fetch("/api/stories/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientStories: localStories }),
-      });
-      if (syncRes.ok) {
-        const syncData = await syncRes.json();
-        if (syncData && syncData.stories && Array.isArray(syncData.stories)) {
-          const cleanStories = syncData.stories.filter((s: Story) => !isDefaultStory(s));
-          setLocalStorage(KEYS.STORIES, cleanStories);
-          return cleanStories;
-        }
-      }
-    }
-
     const res = await fetch("/api/stories");
     if (res.ok) {
       const data = await res.json();
-      if (data.stories && Array.isArray(data.stories)) {
-        const serverCleanStories = data.stories.filter((s: Story) => !isDefaultStory(s));
-        
-        // Merge server stories with any local custom stories not yet on server
-        const serverIds = new Set(serverCleanStories.map((s: Story) => s.id));
-        const unsyncedLocal = localStories.filter(
-          (local) => !serverIds.has(local.id) && !isDefaultStory(local)
-        );
-
-        const unifiedStories = [...serverCleanStories, ...unsyncedLocal];
-        setLocalStorage(KEYS.STORIES, unifiedStories);
-
-        // Background sync any unsynced local stories to server
-        if (unsyncedLocal.length > 0) {
-          fetch("/api/stories/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ clientStories: unsyncedLocal }),
-          }).catch(() => {});
-        }
-
-        return unifiedStories;
+      if (data && Array.isArray(data.stories)) {
+        const cleanStories = data.stories.filter((s: Story) => !isDefaultStory(s));
+        setLocalStorage(KEYS.STORIES, cleanStories);
+        return cleanStories;
       }
     }
   } catch (err) {
-    // Graceful fallback to client storage
+    // Graceful fallback to client storage only if offline
   }
-  return localStories;
+  return getStories();
 };
 
 // Story Helpers (Client resilient & server synced)
@@ -706,58 +689,22 @@ export const saveShiningStars = (stars: ShiningStar[]): void => {
   setLocalStorage(KEYS.SHINING_STARS, stars);
 };
 
+// Server API sync for Shining Stars (Server file-backed storage is authoritative)
 export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
-  const localStars = getShiningStars();
-
   try {
-    // If client has local stars, reconcile with server
-    if (localStars.length > 0) {
-      const syncRes = await fetch("/api/shining-stars/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientStars: localStars }),
-      });
-      if (syncRes.ok) {
-        const syncData = await syncRes.json();
-        if (syncData && syncData.stars && Array.isArray(syncData.stars)) {
-          const cleanStars = syncData.stars.filter((s: ShiningStar) => !isDefaultStar(s));
-          setLocalStorage(KEYS.SHINING_STARS, cleanStars);
-          return cleanStars;
-        }
-      }
-    }
-
     const res = await fetch("/api/shining-stars");
     if (res.ok) {
       const data = await res.json();
-      if (data.stars && Array.isArray(data.stars)) {
+      if (data && Array.isArray(data.stars)) {
         const serverCleanStars = data.stars.filter((s: ShiningStar) => !isDefaultStar(s));
-
-        // Merge server stars with any local custom stars not yet on server
-        const serverIds = new Set(serverCleanStars.map((s: ShiningStar) => s.id));
-        const unsyncedLocal = localStars.filter(
-          (local) => !serverIds.has(local.id) && !isDefaultStar(local)
-        );
-
-        const unifiedStars = [...serverCleanStars, ...unsyncedLocal];
-        setLocalStorage(KEYS.SHINING_STARS, unifiedStars);
-
-        // Background sync any unsynced local stars to server
-        if (unsyncedLocal.length > 0) {
-          fetch("/api/shining-stars/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ clientStars: unsyncedLocal }),
-          }).catch(() => {});
-        }
-
-        return unifiedStars;
+        setLocalStorage(KEYS.SHINING_STARS, serverCleanStars);
+        return serverCleanStars;
       }
     }
   } catch (err) {
-    // Graceful fallback to client storage
+    // Graceful fallback to client storage only if offline
   }
-  return localStars;
+  return getShiningStars();
 };
 
 export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">): Promise<ShiningStar> => {

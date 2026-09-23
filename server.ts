@@ -297,6 +297,10 @@ async function startServer() {
     "the-courageous-dolphin-of-chilika-lake",
     "persistent-forest-journey",
     "the-desert-fox-and-the-hidden-oasis",
+    "the-magic-compass-of-noor",
+    "magic-compass",
+    "xffg",
+    "abcd",
   ];
 
   const LEGACY_DEFAULT_STORY_IDS = [
@@ -312,12 +316,14 @@ async function startServer() {
     if (!story) return false;
     const id = String(story.id || "");
     const slug = String(story.slug || "").toLowerCase();
+    const title = String(story.title || "").toLowerCase();
     // Template IDs: story-1 through story-10 (or any single/double digit id)
     if (/^story-[0-9]{1,2}$/.test(id)) return true;
     // Specific legacy sample IDs
     if (LEGACY_DEFAULT_STORY_IDS.includes(id)) return true;
-    // Known legacy sample slugs
+    // Known legacy sample slugs or titles
     if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
+    if (title === "the magic compass of noor" || title === "xffg" || title === "abcd") return true;
     return false;
   }
 
