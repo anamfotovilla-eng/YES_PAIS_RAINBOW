@@ -1,5 +1,5 @@
 import { Grade, Module, Story, AboutUsContent, ContactUsContent, AppNotification, FeedbackItem, ShiningStar } from "../types";
-import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_ABOUT, DEFAULT_CONTACT } from "../sampleData";
+import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_ABOUT, DEFAULT_CONTACT, DEFAULT_STORIES, DEFAULT_SHINING_STARS } from "../sampleData";
 
 const KEYS = {
   GRADES: "yespaistory_grades",
@@ -14,72 +14,14 @@ const KEYS = {
   SHINING_STARS: "yespaistory_shining_stars",
 };
 
-// Helper to identify default/sample stories that should never appear on the user portal
-const LEGACY_DEFAULT_STORY_SLUGS = [
-  "oliver-owl-learned-to-share",
-  "mystery-of-the-floating-leaf",
-  "moons-lost-nightcap",
-  "code-of-the-forest-bees",
-  "echo-chamber-of-stone-mountain",
-  "legend-of-the-golden-quill",
-  "wood-wide-web-trees-talk",
-  "quantum-compass",
-  "riddle-golden-gate",
-  "the-whispering-banyan",
-  "belief-in-yourself",
-  "the-courageous-dolphin",
-  "the-courageous-dolphin-of-chilika-lake",
-  "persistent-forest-journey",
-  "the-desert-fox-and-the-hidden-oasis",
-  "the-magic-compass-of-noor",
-  "magic-compass",
-  "xffg",
-  "abcd",
-];
-
-const LEGACY_DEFAULT_STORY_IDS = [
-  "story-1790102899999",
-  "story-1790102765374",
-  "story-1790013162299",
-  "story-1790012348307",
-  "story-1790003819476",
-  "story-1789285838253",
-];
-
-export const isDefaultStory = (s: Story): boolean => {
-  if (!s) return false;
-  const id = String(s.id || "");
-  const slug = String(s.slug || "").toLowerCase();
-  const title = String(s.title || "").toLowerCase();
-  // Template IDs: story-1 through story-10 (or any single/double digit id)
-  if (/^story-[0-9]{1,2}$/.test(id)) return true;
-  // Specific legacy sample IDs
-  if (LEGACY_DEFAULT_STORY_IDS.includes(id)) return true;
-  // Known legacy sample slugs or titles
-  if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
-  if (title === "the magic compass of noor" || title === "xffg" || title === "abcd") return true;
-  return false;
-};
-
-// Automatic one-time client storage migration: purge any stale test data from older builds
-const DB_CLEAN_VERSION = "yespaistory_clean_v5";
-if (typeof window !== "undefined") {
-  try {
-    if (!localStorage.getItem(DB_CLEAN_VERSION)) {
-      localStorage.removeItem(KEYS.STORIES);
-      localStorage.removeItem(KEYS.SHINING_STARS);
-      localStorage.removeItem(KEYS.NOTIFICATIONS);
-      localStorage.removeItem(KEYS.DELETED_STORIES);
-      localStorage.setItem(DB_CLEAN_VERSION, "true");
-    }
-  } catch {}
-}
+// Backwards-compatible dummy check - never rejects user stories
+export const isDefaultStory = (_s: Story): boolean => false;
 
 // Helpers
 const getLocalStorage = <T>(key: string, defaultValue: T): T => {
   const data = localStorage.getItem(key);
   if (!data) {
-    localStorage.setItem(key, JSON.stringify(defaultValue));
+    setLocalStorage(key, defaultValue);
     return defaultValue;
   }
   try {
@@ -91,7 +33,23 @@ const getLocalStorage = <T>(key: string, defaultValue: T): T => {
 };
 
 const setLocalStorage = <T>(key: string, value: T): void => {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn(`localStorage quota error for key ${key}:`, e);
+    // If quota exceeded due to large base64 image data URLs, strip heavy images to preserve stories
+    try {
+      if (Array.isArray(value)) {
+        const lightweight = (value as any[]).map((item) => {
+          if (item && item.imageUrl && item.imageUrl.startsWith("data:image/") && item.imageUrl.length > 30000) {
+            return { ...item, imageUrl: "" };
+          }
+          return item;
+        });
+        localStorage.setItem(key, JSON.stringify(lightweight));
+      }
+    } catch {}
+  }
 };
 
 // Public Database APIs
@@ -124,11 +82,17 @@ export const getModules = (): Module[] => {
 
 export const getStories = (): Story[] => {
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-  // Default to empty array - only admin created stories should exist
-  const current = getLocalStorage<Story[]>(KEYS.STORIES, []);
-  // Filter out deleted stories and any legacy default stories
-  const filtered = current.filter((s) => !deletedIds.includes(s.id) && !isDefaultStory(s));
-  if (filtered.length !== current.length) {
+  const stored = getLocalStorage<Story[]>(KEYS.STORIES, DEFAULT_STORIES);
+
+  // Merge any bundled stories from data/stories.json not yet in local storage and not explicitly deleted
+  const storedIds = new Set(stored.map((s) => s.id));
+  const missingBundled = DEFAULT_STORIES.filter(
+    (b) => !storedIds.has(b.id) && !deletedIds.includes(b.id)
+  );
+
+  const combined = missingBundled.length > 0 ? [...stored, ...missingBundled] : stored;
+  const filtered = combined.filter((s) => !deletedIds.includes(s.id) && s.title && s.content);
+  if (filtered.length !== stored.length) {
     setLocalStorage(KEYS.STORIES, filtered);
   }
   return filtered;
@@ -262,22 +226,45 @@ export const clearAllNotificationsAsync = async (): Promise<void> => {
   } catch {}
 };
 
-// Server API sync for stories (Server file-backed storage is authoritative)
+// Server API sync for stories with resilient bidirectional reconciliation
 export const fetchStoriesAsync = async (): Promise<Story[]> => {
+  const localStories = getStories();
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+
   try {
     const res = await fetch("/api/stories");
     if (res.ok) {
       const data = await res.json();
       if (data && Array.isArray(data.stories)) {
-        const cleanStories = data.stories.filter((s: Story) => !isDefaultStory(s));
-        setLocalStorage(KEYS.STORIES, cleanStories);
-        return cleanStories;
+        const serverStories: Story[] = data.stories.filter(
+          (s: Story) => s && s.title && s.content && !deletedIds.includes(s.id)
+        );
+
+        // Merge server stories with local stories so newly created stories never disappear on refresh
+        const serverIds = new Set(serverStories.map((s) => s.id));
+        const unsyncedLocal = localStories.filter(
+          (local) => !serverIds.has(local.id) && !deletedIds.includes(local.id)
+        );
+
+        const unifiedStories = [...serverStories, ...unsyncedLocal];
+        setLocalStorage(KEYS.STORIES, unifiedStories);
+
+        // Sync local stories to server in the background if server doesn't have them yet
+        if (unsyncedLocal.length > 0) {
+          fetch("/api/stories/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientStories: unsyncedLocal }),
+          }).catch(() => {});
+        }
+
+        return unifiedStories;
       }
     }
   } catch (err) {
-    // Graceful fallback to client storage only if offline
+    // Offline or static preview fallback
   }
-  return getStories();
+  return localStories;
 };
 
 // Story Helpers (Client resilient & server synced)
@@ -391,6 +378,11 @@ export const updateStory = async (id: string, updatedData: Partial<Story>): Prom
 };
 
 export const deleteStory = async (id: string): Promise<void> => {
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+  if (!deletedIds.includes(id)) {
+    setLocalStorage(KEYS.DELETED_STORIES, [...deletedIds, id]);
+  }
+
   const current = getStories();
   const filtered = current.filter((s) => s.id !== id);
   saveStories(filtered);
@@ -657,29 +649,18 @@ export const resetAdminPasswordAsync = async (
   return { success: true, message: "Administrator password has been reset successfully!" };
 };
 
-// Shining Stars Management (Showcases top student authors added manually by admin)
-export const DEFAULT_SHINING_STARS: ShiningStar[] = [];
-
-const LEGACY_DEFAULT_STAR_IDS = [
-  "star-1",
-  "star-2",
-  "star-3",
-  "star-1790012507111-cf5r",
-  "star-1790012348540-c5ic",
-];
-
-export const isDefaultStar = (s: ShiningStar): boolean => {
-  if (!s) return false;
-  const id = String(s.id || "");
-  if (/^star-[0-9]{1,2}$/.test(id)) return true;
-  if (LEGACY_DEFAULT_STAR_IDS.includes(id)) return true;
-  return false;
-};
+// Shining Stars Management (Showcases top student authors added manually by admin or bundled in JSON)
+export const isDefaultStar = (_s: ShiningStar): boolean => false;
 
 export const getShiningStars = (): ShiningStar[] => {
-  const current = getLocalStorage<ShiningStar[]>(KEYS.SHINING_STARS, []);
-  const filtered = current.filter((s) => !isDefaultStar(s));
-  if (filtered.length !== current.length) {
+  const stored = getLocalStorage<ShiningStar[]>(KEYS.SHINING_STARS, DEFAULT_SHINING_STARS);
+
+  const storedIds = new Set(stored.map((s) => s.id));
+  const missingBundled = DEFAULT_SHINING_STARS.filter((b) => !storedIds.has(b.id));
+
+  const combined = missingBundled.length > 0 ? [...stored, ...missingBundled] : stored;
+  const filtered = combined.filter((s) => s && s.studentName && s.className && s.division);
+  if (filtered.length !== stored.length) {
     setLocalStorage(KEYS.SHINING_STARS, filtered);
   }
   return filtered;
@@ -689,22 +670,40 @@ export const saveShiningStars = (stars: ShiningStar[]): void => {
   setLocalStorage(KEYS.SHINING_STARS, stars);
 };
 
-// Server API sync for Shining Stars (Server file-backed storage is authoritative)
+// Server API sync for Shining Stars with resilient bidirectional reconciliation
 export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
+  const localStars = getShiningStars();
+
   try {
     const res = await fetch("/api/shining-stars");
     if (res.ok) {
       const data = await res.json();
       if (data && Array.isArray(data.stars)) {
-        const serverCleanStars = data.stars.filter((s: ShiningStar) => !isDefaultStar(s));
-        setLocalStorage(KEYS.SHINING_STARS, serverCleanStars);
-        return serverCleanStars;
+        const serverStars: ShiningStar[] = data.stars.filter(
+          (s: ShiningStar) => s && s.studentName && s.className && s.division
+        );
+
+        const serverIds = new Set(serverStars.map((s) => s.id));
+        const unsyncedLocal = localStars.filter((local) => !serverIds.has(local.id));
+
+        const unifiedStars = [...serverStars, ...unsyncedLocal];
+        setLocalStorage(KEYS.SHINING_STARS, unifiedStars);
+
+        if (unsyncedLocal.length > 0) {
+          fetch("/api/shining-stars/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientStars: unsyncedLocal }),
+          }).catch(() => {});
+        }
+
+        return unifiedStars;
       }
     }
   } catch (err) {
-    // Graceful fallback to client storage only if offline
+    // Offline or static fallback
   }
-  return getShiningStars();
+  return localStars;
 };
 
 export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">): Promise<ShiningStar> => {

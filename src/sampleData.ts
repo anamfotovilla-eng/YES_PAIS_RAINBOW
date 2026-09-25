@@ -1,4 +1,6 @@
-import { Grade, Module, Story, AboutUsContent, ContactUsContent } from "./types";
+import { Grade, Module, Story, AboutUsContent, ContactUsContent, ShiningStar } from "./types";
+import storiesJson from "../data/stories.json";
+import starsJson from "../data/shining-stars.json";
 
 export const DEFAULT_GRADES: Grade[] = [
   { id: "grade-1", name: "Grade 1" },
@@ -20,8 +22,10 @@ export const DEFAULT_MODULES: Module[] = [
   { id: "mod-adventure", name: "Adventure & Legends", description: "Epic journeys and clever heroes solving grand mysteries." },
 ];
 
-// Clean initial state: only stories created manually via Admin Portal are displayed
-export const DEFAULT_STORIES: Story[] = [];
+// Initial state from data JSON files (bundled for offline & static reliability)
+export const DEFAULT_STORIES: Story[] = Array.isArray(storiesJson) ? (storiesJson as Story[]) : [];
+export const DEFAULT_SHINING_STARS: ShiningStar[] = Array.isArray(starsJson) ? (starsJson as ShiningStar[]) : [];
+
 
 export const DEFAULT_ABOUT: AboutUsContent = {
   title: "About Yespaistory Hub",

@@ -61,6 +61,8 @@ import {
   Star,
   Award,
   UserPlus,
+  Download,
+  FileJson,
 } from "lucide-react";
 
 interface AdminDashboardProps {
@@ -285,6 +287,36 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
 
   const handleCancelDeleteStar = () => {
     setStarToDelete(null);
+  };
+
+  const handleExportStoriesJson = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stories, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "stories.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      triggerToast("Exported stories.json successfully!");
+    } catch {
+      triggerToast("Failed to export stories.json", "error");
+    }
+  };
+
+  const handleExportStarsJson = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(shiningStars, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "shining-stars.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      triggerToast("Exported shining-stars.json successfully!");
+    } catch {
+      triggerToast("Failed to export shining-stars.json", "error");
+    }
   };
 
 
@@ -923,6 +955,14 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                 </div>
               </div>
 
+              {/* Deployment & Git Persistence Advisory */}
+              <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-3.5 mb-5 text-xs text-indigo-900 flex items-start gap-2.5">
+                <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <span className="font-bold">Deployment &amp; Git Sync:</span> Stories added here are stored locally and synced with the backend. When using the <span className="font-semibold">Antigravity &rarr; GitHub &rarr; Render</span> workflow, click <span className="font-semibold">"Export stories.json"</span> and save the file into <code className="bg-white/80 px-1.5 py-0.5 rounded border border-indigo-200 text-indigo-950 font-mono">data/stories.json</code> so that all your stories are permanently committed in Git and never lost when Render restarts or redeploys!
+                </div>
+              </div>
+
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 {/* Internal table search bar */}
                 <div className="relative flex-1 max-w-md">
@@ -937,6 +977,15 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportStoriesJson}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-natural-light text-natural-heading border border-natural-border font-sans font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                    title="Export stories as a JSON file to place into data/stories.json"
+                  >
+                    <Download className="w-4 h-4 text-indigo-600" />
+                    <span>Export stories.json</span>
+                  </button>
                   {selectedAdminGradeId !== "all" && (
                     <button
                       onClick={() => handleOpenCreateStory(selectedAdminGradeId)}
@@ -1313,6 +1362,27 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                           </div>
                         </div>
                       )}
+
+                      {/* Optional direct URL input */}
+                      <div className="pt-2">
+                        <label htmlFor="story-image-url-manual" className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                          Or paste an Image Web URL / Local Path
+                        </label>
+                        <input
+                          id="story-image-url-manual"
+                          type="text"
+                          placeholder="e.g. https://images.unsplash.com/... or /images/story1.jpg"
+                          value={storyForm.imageUrl.startsWith("data:") ? "" : storyForm.imageUrl}
+                          onChange={(e) => {
+                            setStoryForm((prev) => ({ ...prev, imageUrl: e.target.value.trim() }));
+                            setUploadedFileName(null);
+                          }}
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                        />
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          You can paste any web image link (Unsplash, Imgur, Cloudinary) or local path.
+                        </p>
+                      </div>
                     </div>
 
                     <div className="pt-2">
@@ -1896,13 +1966,24 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
               </div>
 
               {!isCreatingStar && !editingStar && (
-                <button
-                  onClick={handleOpenCreateStar}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-sans font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap self-start sm:self-auto"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Shining Star</span>
-                </button>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={handleExportStarsJson}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-amber-50/50 text-slate-800 border border-amber-300 font-sans font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                    title="Export shining stars as JSON file to save into data/shining-stars.json"
+                  >
+                    <Download className="w-4 h-4 text-amber-600" />
+                    <span>Export shining-stars.json</span>
+                  </button>
+                  <button
+                    onClick={handleOpenCreateStar}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-sans font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Shining Star</span>
+                  </button>
+                </div>
               )}
             </div>
 

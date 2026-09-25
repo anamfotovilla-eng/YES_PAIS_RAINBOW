@@ -281,69 +281,22 @@ async function startServer() {
   const STORIES_FILE = path.join(DATA_DIR, "stories.json");
   let storiesCache: any[] | null = null;
 
-  const LEGACY_DEFAULT_STORY_SLUGS = [
-    "oliver-owl-learned-to-share",
-    "mystery-of-the-floating-leaf",
-    "moons-lost-nightcap",
-    "code-of-the-forest-bees",
-    "echo-chamber-of-stone-mountain",
-    "legend-of-the-golden-quill",
-    "wood-wide-web-trees-talk",
-    "quantum-compass",
-    "riddle-golden-gate",
-    "the-whispering-banyan",
-    "belief-in-yourself",
-    "the-courageous-dolphin",
-    "the-courageous-dolphin-of-chilika-lake",
-    "persistent-forest-journey",
-    "the-desert-fox-and-the-hidden-oasis",
-    "the-magic-compass-of-noor",
-    "magic-compass",
-    "xffg",
-    "abcd",
-  ];
-
-  const LEGACY_DEFAULT_STORY_IDS = [
-    "story-1790102899999",
-    "story-1790102765374",
-    "story-1790013162299",
-    "story-1790012348307",
-    "story-1790003819476",
-    "story-1789285838253",
-  ];
-
-  function isDefaultStory(story: any): boolean {
+  function isValidStory(story: any): boolean {
     if (!story) return false;
-    const id = String(story.id || "");
-    const slug = String(story.slug || "").toLowerCase();
-    const title = String(story.title || "").toLowerCase();
-    // Template IDs: story-1 through story-10 (or any single/double digit id)
-    if (/^story-[0-9]{1,2}$/.test(id)) return true;
-    // Specific legacy sample IDs
-    if (LEGACY_DEFAULT_STORY_IDS.includes(id)) return true;
-    // Known legacy sample slugs or titles
-    if (LEGACY_DEFAULT_STORY_SLUGS.includes(slug)) return true;
-    if (title === "the magic compass of noor" || title === "xffg" || title === "abcd") return true;
-    return false;
+    const title = String(story.title || "").trim();
+    const content = String(story.content || "").trim();
+    return title.length > 0 && content.length > 0;
   }
 
   function loadPersistentStories(): any[] {
-    if (storiesCache !== null) {
-      return storiesCache;
-    }
-
     const stored = safeReadJsonFile<any[]>(STORIES_FILE, []);
     if (Array.isArray(stored)) {
-      const adminOnlyStories = stored.filter((s) => !isDefaultStory(s));
-      storiesCache = adminOnlyStories;
-      if (adminOnlyStories.length !== stored.length) {
-        safeWriteJsonFile(STORIES_FILE, adminOnlyStories);
-      }
-      return adminOnlyStories;
+      const validStories = stored.filter(isValidStory);
+      storiesCache = validStories;
+      return validStories;
     }
 
     storiesCache = [];
-    safeWriteJsonFile(STORIES_FILE, []);
     return [];
   }
 
@@ -415,8 +368,7 @@ async function startServer() {
     if (Array.isArray(clientStories) && clientStories.length > 0) {
       let updated = false;
       for (const clientStory of clientStories) {
-        if (!clientStory || !clientStory.title || !clientStory.content) continue;
-        if (isDefaultStory(clientStory)) continue;
+        if (!clientStory || !isValidStory(clientStory)) continue;
         const id = clientStory.id || `story-${Date.now()}`;
         const existingIdx = stories.findIndex(
           (s) => s.id === id || (clientStory.slug && s.slug === clientStory.slug)
@@ -586,27 +538,15 @@ async function startServer() {
   const SHINING_STARS_FILE = path.join(DATA_DIR, "shining-stars.json");
   let starsCache: any[] | null = null;
 
-  const LEGACY_DEFAULT_STAR_IDS = [
-    "star-1",
-    "star-2",
-    "star-3",
-    "star-1790012507111-cf5r",
-    "star-1790012348540-c5ic",
-  ];
-
-  function isDefaultStar(star: any): boolean {
+  function isValidStar(star: any): boolean {
     if (!star) return false;
-    const id = String(star.id || "");
-    if (/^star-[0-9]{1,2}$/.test(id)) return true;
-    if (LEGACY_DEFAULT_STAR_IDS.includes(id)) return true;
-    return false;
+    const name = String(star.studentName || "").trim();
+    const cls = String(star.className || "").trim();
+    const div = String(star.division || "").trim();
+    return name.length > 0 && cls.length > 0 && div.length > 0;
   }
 
   function loadPersistentShiningStars(): any[] {
-    if (starsCache !== null) {
-      return starsCache;
-    }
-
     if (!fs.existsSync(SHINING_STARS_FILE)) {
       starsCache = [];
       safeWriteJsonFile(SHINING_STARS_FILE, []);
@@ -615,16 +555,12 @@ async function startServer() {
 
     const stored = safeReadJsonFile<any[]>(SHINING_STARS_FILE, []);
     if (Array.isArray(stored)) {
-      const cleanStars = stored.filter((s) => !isDefaultStar(s));
-      starsCache = cleanStars;
-      if (cleanStars.length !== stored.length) {
-        safeWriteJsonFile(SHINING_STARS_FILE, cleanStars);
-      }
-      return cleanStars;
+      const validStars = stored.filter(isValidStar);
+      starsCache = validStars;
+      return validStars;
     }
 
     starsCache = [];
-    safeWriteJsonFile(SHINING_STARS_FILE, []);
     return [];
   }
 
@@ -646,8 +582,7 @@ async function startServer() {
     if (Array.isArray(clientStars) && clientStars.length > 0) {
       let updated = false;
       for (const clientStar of clientStars) {
-        if (!clientStar || !clientStar.studentName || !clientStar.className || !clientStar.division) continue;
-        if (isDefaultStar(clientStar)) continue;
+        if (!clientStar || !isValidStar(clientStar)) continue;
         const id = clientStar.id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const existingIdx = stars.findIndex((s) => s.id === id);
         if (existingIdx === -1) {
