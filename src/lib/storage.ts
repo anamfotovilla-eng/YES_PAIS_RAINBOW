@@ -12,6 +12,23 @@ const KEYS = {
   FEEDBACK: "yespaistory_feedback_inbox",
   ADMIN_PASSWORD: "yespaistory_admin_password",
   SHINING_STARS: "yespaistory_shining_stars",
+  DELETED_STARS: "yespaistory_deleted_star_ids",
+};
+
+// Check if a story has been deleted across ID, slug, or title
+export const isStoryDeleted = (
+  story: { id?: string; slug?: string; title?: string } | null | undefined,
+  deletedIds: string[]
+): boolean => {
+  if (!story || !Array.isArray(deletedIds) || deletedIds.length === 0) return false;
+  const id = String(story.id || "").trim();
+  const slug = String(story.slug || "").trim();
+  const title = String(story.title || "").toLowerCase().trim();
+
+  if (id && deletedIds.includes(id)) return true;
+  if (slug && (deletedIds.includes(slug) || deletedIds.includes(slug.toLowerCase()))) return true;
+  if (title && deletedIds.includes(title)) return true;
+  return false;
 };
 
 // Backwards-compatible dummy check - never rejects user stories
@@ -87,11 +104,11 @@ export const getStories = (): Story[] => {
   // Merge any bundled stories from data/stories.json not yet in local storage and not explicitly deleted
   const storedIds = new Set(stored.map((s) => s.id));
   const missingBundled = DEFAULT_STORIES.filter(
-    (b) => !storedIds.has(b.id) && !deletedIds.includes(b.id)
+    (b) => !storedIds.has(b.id) && !isStoryDeleted(b, deletedIds)
   );
 
   const combined = missingBundled.length > 0 ? [...stored, ...missingBundled] : stored;
-  const filtered = combined.filter((s) => !deletedIds.includes(s.id) && s.title && s.content);
+  const filtered = combined.filter((s) => s && s.title && s.content && !isStoryDeleted(s, deletedIds));
   if (filtered.length !== stored.length) {
     setLocalStorage(KEYS.STORIES, filtered);
   }
@@ -236,14 +253,27 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
     if (res.ok) {
       const data = await res.json();
       if (data && Array.isArray(data.stories)) {
+        // Synchronize server-side deleted IDs into client storage
+        if (Array.isArray(data.deletedIds)) {
+          const mergedDeleted = new Set([...deletedIds, ...data.deletedIds]);
+          if (mergedDeleted.size !== deletedIds.length) {
+            setLocalStorage(KEYS.DELETED_STORIES, Array.from(mergedDeleted));
+          }
+        }
+        const effectiveDeleted = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+
         const serverStories: Story[] = data.stories.filter(
-          (s: Story) => s && s.title && s.content && !deletedIds.includes(s.id)
+          (s: Story) => s && s.title && s.content && !isStoryDeleted(s, effectiveDeleted)
         );
 
         // Merge server stories with local stories so newly created stories never disappear on refresh
         const serverIds = new Set(serverStories.map((s) => s.id));
+        const serverSlugs = new Set(serverStories.map((s) => s.slug).filter(Boolean));
         const unsyncedLocal = localStories.filter(
-          (local) => !serverIds.has(local.id) && !deletedIds.includes(local.id)
+          (local) =>
+            !isStoryDeleted(local, effectiveDeleted) &&
+            !serverIds.has(local.id) &&
+            (!local.slug || !serverSlugs.has(local.slug))
         );
 
         const unifiedStories = [...serverStories, ...unsyncedLocal];
@@ -283,6 +313,15 @@ export const addStory = async (story: Omit<Story, "id" | "createdAt">): Promise<
     slug,
     createdAt: new Date().toISOString(),
   };
+
+  // If deliberately re-adding a story with this slug/title, remove from deleted IDs
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+  if (isStoryDeleted(newStory, deletedIds)) {
+    const cleaned = deletedIds.filter(
+      (d) => d !== newStory.id && d !== newStory.slug && d !== newStory.title.toLowerCase().trim()
+    );
+    setLocalStorage(KEYS.DELETED_STORIES, cleaned);
+  }
 
   // 1. Immediately save to client localStorage so it is never lost
   const current = getStories();
@@ -377,23 +416,186 @@ export const updateStory = async (id: string, updatedData: Partial<Story>): Prom
   return mergedStory;
 };
 
-export const deleteStory = async (id: string): Promise<void> => {
-  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-  if (!deletedIds.includes(id)) {
-    setLocalStorage(KEYS.DELETED_STORIES, [...deletedIds, id]);
+// Robust story deletion by id, slug, or title
+export const deleteStory = async (
+  idOrStory: string | Story,
+  slug?: string,
+  title?: string
+): Promise<void> => {
+  const current = getStories();
+  let id = typeof idOrStory === "string" ? idOrStory.trim() : idOrStory.id.trim();
+  let storySlug = slug || (typeof idOrStory === "object" ? idOrStory.slug : undefined);
+  let storyTitle = title || (typeof idOrStory === "object" ? idOrStory.title : undefined);
+
+  if (!storySlug || !storyTitle) {
+    const existing = current.find((s) => s.id === id || (storySlug && s.slug === storySlug));
+    if (existing) {
+      if (!storySlug) storySlug = existing.slug;
+      if (!storyTitle) storyTitle = existing.title;
+    }
   }
 
-  const current = getStories();
-  const filtered = current.filter((s) => s.id !== id);
+  // 1. Add all identifiers to client deletedIds
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+  const newDeleted = new Set(deletedIds);
+  if (id) newDeleted.add(id);
+  if (storySlug) {
+    newDeleted.add(storySlug);
+    newDeleted.add(storySlug.toLowerCase());
+  }
+  if (storyTitle) {
+    newDeleted.add(storyTitle.toLowerCase().trim());
+  }
+  const updatedDeletedList = Array.from(newDeleted);
+  setLocalStorage(KEYS.DELETED_STORIES, updatedDeletedList);
+
+  // 2. Filter local stories immediately
+  const filtered = current.filter((s) => !isStoryDeleted(s, updatedDeletedList));
   saveStories(filtered);
 
-  try {
-    await fetch(`/api/stories/${id}`, {
-      method: "DELETE",
-    });
-  } catch (err) {
-    console.warn("Failed to delete story on server API:", err);
+  // 3. Remove associated notifications
+  const notifs = getNotifications();
+  const cleanNotifs = notifs.filter(
+    (n) =>
+      (!n.storyId || !updatedDeletedList.includes(n.storyId)) &&
+      (!n.storySlug || !updatedDeletedList.includes(n.storySlug))
+  );
+  if (cleanNotifs.length !== notifs.length) {
+    saveNotifications(cleanNotifs);
   }
+
+  // 4. Send deletion to server API
+  try {
+    const query = new URLSearchParams();
+    if (storySlug) query.set("slug", storySlug);
+    if (storyTitle) query.set("title", storyTitle);
+    const queryString = query.toString() ? `?${query.toString()}` : "";
+
+    const res = await fetch(`/api/stories/${encodeURIComponent(id)}${queryString}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, slug: storySlug, title: storyTitle }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.deletedIds)) {
+        for (const sId of data.deletedIds) {
+          newDeleted.add(sId);
+        }
+        setLocalStorage(KEYS.DELETED_STORIES, Array.from(newDeleted));
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to delete story on server API, cached deletion locally:", err);
+  }
+};
+
+// Batch delete multiple stories simultaneously
+export const deleteStoriesBatch = async (ids: string[]): Promise<void> => {
+  if (!Array.isArray(ids) || ids.length === 0) return;
+  const current = getStories();
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+  const newDeleted = new Set(deletedIds);
+
+  const matchedStories = current.filter((s) => ids.includes(s.id));
+  for (const s of matchedStories) {
+    if (s.id) newDeleted.add(s.id);
+    if (s.slug) {
+      newDeleted.add(s.slug);
+      newDeleted.add(s.slug.toLowerCase());
+    }
+    if (s.title) newDeleted.add(s.title.toLowerCase().trim());
+  }
+  for (const id of ids) newDeleted.add(id);
+
+  const updatedDeletedList = Array.from(newDeleted);
+  setLocalStorage(KEYS.DELETED_STORIES, updatedDeletedList);
+
+  const filtered = current.filter((s) => !isStoryDeleted(s, updatedDeletedList));
+  saveStories(filtered);
+
+  // Remove notifications
+  const notifs = getNotifications();
+  const cleanNotifs = notifs.filter(
+    (n) =>
+      (!n.storyId || !updatedDeletedList.includes(n.storyId)) &&
+      (!n.storySlug || !updatedDeletedList.includes(n.storySlug))
+  );
+  if (cleanNotifs.length !== notifs.length) {
+    saveNotifications(cleanNotifs);
+  }
+
+  try {
+    const res = await fetch("/api/stories/batch-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ids,
+        slugs: matchedStories.map((s) => s.slug).filter(Boolean),
+        titles: matchedStories.map((s) => s.title).filter(Boolean),
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.deletedIds)) {
+        for (const sId of data.deletedIds) {
+          newDeleted.add(sId);
+        }
+        setLocalStorage(KEYS.DELETED_STORIES, Array.from(newDeleted));
+      }
+    }
+  } catch (err) {
+    console.warn("Server API batch delete warning:", err);
+  }
+};
+
+// Purge any legacy sample/demo stories that linger from previous test sessions
+export const purgeLegacyStories = async (): Promise<{ purgedCount: number }> => {
+  const current = getStories();
+  const legacySlugs = [
+    "oliver-owl-learned-to-share", "mystery-of-the-floating-leaf", "moons-lost-nightcap",
+    "code-of-the-forest-bees", "echo-chamber-of-stone-mountain", "legend-of-the-golden-quill",
+    "wood-wide-web-trees-talk", "quantum-compass", "riddle-golden-gate", "the-whispering-banyan",
+    "whispering-banyan", "belief-in-yourself", "the-courageous-dolphin", "the-courageous-dolphin-of-chilika-lake",
+    "persistent-forest-journey", "the-desert-fox-and-the-hidden-oasis", "the-magic-compass-of-noor",
+    "magic-compass", "maya-lin", "xffg", "abcd"
+  ];
+  const legacyIds = [
+    "story-1", "story-2", "story-3", "story-4", "story-5",
+    "story-6", "story-7", "story-8", "story-9", "story-10",
+    "story-1790102899999", "story-1790102765374", "story-1790013162299",
+    "story-1790012348307", "story-1790003819476", "story-1789285838253"
+  ];
+
+  const matched = current.filter((s) => {
+    const id = s.id || "";
+    const slug = (s.slug || "").toLowerCase();
+    const title = (s.title || "").toLowerCase();
+    return (
+      /^story-[0-9]{1,2}$/.test(id) ||
+      legacyIds.includes(id) ||
+      legacySlugs.includes(slug) ||
+      title.includes("whispering banyan") ||
+      title.includes("desert fox") ||
+      title.includes("courageous dolphin") ||
+      title.includes("wood wide web") ||
+      title.includes("quantum compass") ||
+      title.includes("golden quill") ||
+      title.includes("golden gate") ||
+      title === "xffg" ||
+      title === "abcd"
+    );
+  });
+
+  const idsToPurge = matched.map((s) => s.id);
+  await deleteStoriesBatch(idsToPurge);
+
+  try {
+    await fetch("/api/stories/purge-legacy", { method: "POST" });
+  } catch {}
+
+  return { purgedCount: matched.length };
 };
 
 
@@ -673,18 +875,27 @@ export const saveShiningStars = (stars: ShiningStar[]): void => {
 // Server API sync for Shining Stars with resilient bidirectional reconciliation
 export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
   const localStars = getShiningStars();
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
 
   try {
     const res = await fetch("/api/shining-stars");
     if (res.ok) {
       const data = await res.json();
       if (data && Array.isArray(data.stars)) {
-        const serverStars: ShiningStar[] = data.stars.filter(
-          (s: ShiningStar) => s && s.studentName && s.className && s.division
+        if (Array.isArray(data.deletedIds)) {
+          const mergedDeleted = new Set([...deletedIds, ...data.deletedIds]);
+          if (mergedDeleted.size !== deletedIds.length) {
+            setLocalStorage(KEYS.DELETED_STARS, Array.from(mergedDeleted));
+          }
+        }
+        const effectiveDeleted = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
+
+        const serverStars: ShiningStar[] = data.stories ? [] : data.stars.filter(
+          (s: ShiningStar) => s && s.studentName && s.className && s.division && !effectiveDeleted.includes(s.id)
         );
 
         const serverIds = new Set(serverStars.map((s) => s.id));
-        const unsyncedLocal = localStars.filter((local) => !serverIds.has(local.id));
+        const unsyncedLocal = localStars.filter((local) => !serverIds.has(local.id) && !effectiveDeleted.includes(local.id));
 
         const unifiedStars = [...serverStars, ...unsyncedLocal];
         setLocalStorage(KEYS.SHINING_STARS, unifiedStars);
@@ -771,6 +982,11 @@ export const updateShiningStar = async (id: string, updatedData: Partial<Shining
 };
 
 export const deleteShiningStar = async (id: string): Promise<void> => {
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
+  if (!deletedIds.includes(id)) {
+    setLocalStorage(KEYS.DELETED_STARS, [...deletedIds, id]);
+  }
+
   const current = getShiningStars();
   const filtered = current.filter((s) => s.id !== id);
   saveShiningStars(filtered);

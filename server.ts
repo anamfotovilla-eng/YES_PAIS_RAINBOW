@@ -279,7 +279,112 @@ async function startServer() {
 
   // Story Management API (Persistent file-backed storage with memory cache)
   const STORIES_FILE = path.join(DATA_DIR, "stories.json");
+  const DELETED_STORIES_FILE = path.join(DATA_DIR, "deleted-story-ids.json");
+  const DELETED_STARS_FILE = path.join(DATA_DIR, "deleted-star-ids.json");
   let storiesCache: any[] | null = null;
+  let deletedStoriesCache: string[] | null = null;
+  let deletedStarsCache: string[] | null = null;
+
+  function loadPersistentDeletedStoryIds(): string[] {
+    if (deletedStoriesCache !== null) return deletedStoriesCache;
+    const stored = safeReadJsonFile<string[]>(DELETED_STORIES_FILE, []);
+    deletedStoriesCache = Array.isArray(stored) ? stored : [];
+    return deletedStoriesCache;
+  }
+
+  function addPersistentDeletedStoryIds(ids: string[]): void {
+    const current = loadPersistentDeletedStoryIds();
+    const set = new Set(current);
+    let changed = false;
+    for (const rawId of ids) {
+      if (!rawId) continue;
+      const cleanId = String(rawId).trim();
+      if (cleanId && !set.has(cleanId)) {
+        set.add(cleanId);
+        changed = true;
+      }
+      const lower = cleanId.toLowerCase();
+      if (lower && !set.has(lower)) {
+        set.add(lower);
+        changed = true;
+      }
+    }
+    if (changed) {
+      deletedStoriesCache = Array.from(set);
+      safeWriteJsonFile(DELETED_STORIES_FILE, deletedStoriesCache);
+    }
+  }
+
+  function isStoryDeletedOnServer(story: any, deletedIds: string[]): boolean {
+    if (!story) return true;
+    const id = String(story.id || "").trim();
+    const slug = String(story.slug || "").trim();
+    const title = String(story.title || "").toLowerCase().trim();
+
+    if (id && deletedIds.includes(id)) return true;
+    if (slug && (deletedIds.includes(slug) || deletedIds.includes(slug.toLowerCase()))) return true;
+    if (title && deletedIds.includes(title)) return true;
+    return false;
+  }
+
+  // Known legacy default sample story identifiers to easily purge on demand
+  const LEGACY_SAMPLE_SLUGS = [
+    "oliver-owl-learned-to-share",
+    "mystery-of-the-floating-leaf",
+    "moons-lost-nightcap",
+    "code-of-the-forest-bees",
+    "echo-chamber-of-stone-mountain",
+    "legend-of-the-golden-quill",
+    "wood-wide-web-trees-talk",
+    "quantum-compass",
+    "riddle-golden-gate",
+    "the-whispering-banyan",
+    "whispering-banyan",
+    "belief-in-yourself",
+    "the-courageous-dolphin",
+    "the-courageous-dolphin-of-chilika-lake",
+    "persistent-forest-journey",
+    "the-desert-fox-and-the-hidden-oasis",
+    "the-magic-compass-of-noor",
+    "magic-compass",
+    "maya-lin",
+    "xffg",
+    "abcd",
+  ];
+
+  const LEGACY_SAMPLE_IDS = [
+    "story-1", "story-2", "story-3", "story-4", "story-5",
+    "story-6", "story-7", "story-8", "story-9", "story-10",
+    "story-1790102899999", "story-1790102765374", "story-1790013162299",
+    "story-1790012348307", "story-1790003819476", "story-1789285838253",
+  ];
+
+  function isLegacySampleStory(story: any): boolean {
+    if (!story) return false;
+    const id = String(story.id || "").trim();
+    const slug = String(story.slug || "").toLowerCase().trim();
+    const title = String(story.title || "").toLowerCase().trim();
+    if (/^story-[0-9]{1,2}$/.test(id)) return true;
+    if (LEGACY_SAMPLE_IDS.includes(id)) return true;
+    if (LEGACY_SAMPLE_SLUGS.includes(slug)) return true;
+    if (
+      title.includes("whispering banyan") ||
+      title.includes("desert fox") ||
+      title.includes("courageous dolphin") ||
+      title.includes("wood wide web") ||
+      title.includes("quantum compass") ||
+      title.includes("golden quill") ||
+      title.includes("golden gate") ||
+      title.includes("floating leaf") ||
+      title.includes("lost nightcap") ||
+      title.includes("forest bees") ||
+      title === "xffg" ||
+      title === "abcd"
+    ) {
+      return true;
+    }
+    return false;
+  }
 
   function isValidStory(story: any): boolean {
     if (!story) return false;
@@ -354,21 +459,28 @@ async function startServer() {
     return newNotif;
   }
 
-  // GET /api/stories - List all stories (only admin-created stories)
+  // GET /api/stories - List all active stories and deleted IDs for client sync
   app.get("/api/stories", (req, res) => {
     const stories = loadPersistentStories();
-    res.json({ success: true, stories });
+    const deletedIds = loadPersistentDeletedStoryIds();
+    const cleanStories = stories.filter((s) => !isStoryDeletedOnServer(s, deletedIds));
+    res.json({ success: true, stories: cleanStories, deletedIds });
   });
 
-  // POST /api/stories/sync - Reconcile local client stories with server storage
+  // POST /api/stories/sync - Reconcile local client stories with server storage (guarded against deleted stories)
   app.post("/api/stories/sync", (req, res) => {
     const { clientStories } = req.body || {};
     const stories = loadPersistentStories();
+    const deletedIds = loadPersistentDeletedStoryIds();
 
     if (Array.isArray(clientStories) && clientStories.length > 0) {
       let updated = false;
       for (const clientStory of clientStories) {
         if (!clientStory || !isValidStory(clientStory)) continue;
+        // Strict guard: NEVER resurrect a deleted story
+        if (isStoryDeletedOnServer(clientStory, deletedIds)) {
+          continue;
+        }
         const id = clientStory.id || `story-${Date.now()}`;
         const existingIdx = stories.findIndex(
           (s) => s.id === id || (clientStory.slug && s.slug === clientStory.slug)
@@ -383,7 +495,8 @@ async function startServer() {
       }
     }
 
-    res.json({ success: true, stories });
+    const cleanStories = stories.filter((s) => !isStoryDeletedOnServer(s, deletedIds));
+    res.json({ success: true, stories: cleanStories, deletedIds });
   });
 
   // POST /api/stories - Add a story
@@ -411,6 +524,16 @@ async function startServer() {
       createdAt: storyData.createdAt || new Date().toISOString(),
       isPublished: storyData.isPublished !== undefined ? Boolean(storyData.isPublished) : true,
     };
+
+    // If previously deleted, remove from deleted IDs so deliberate recreation is allowed
+    const deletedIds = loadPersistentDeletedStoryIds();
+    if (isStoryDeletedOnServer(newStory, deletedIds)) {
+      const filteredDeleted = deletedIds.filter(
+        (d) => d !== newStory.id && d !== newStory.slug && d !== newStory.title.toLowerCase().trim()
+      );
+      deletedStoriesCache = filteredDeleted;
+      safeWriteJsonFile(DELETED_STORIES_FILE, filteredDeleted);
+    }
 
     // Update if already exists, else unshift
     const existingIndex = stories.findIndex((s) => s.id === newStory.id || (newStory.slug && s.slug === newStory.slug));
@@ -456,19 +579,153 @@ async function startServer() {
     res.json({ success: true, story: stories[index] });
   });
 
-  // DELETE /api/stories/:id - Delete a story
+  // DELETE /api/stories/:id - Delete a story permanently by id, slug, or title
   app.delete("/api/stories/:id", (req, res) => {
-    const { id } = req.params;
-    let stories = loadPersistentStories();
-    const initialLen = stories.length;
-    stories = stories.filter((s) => s.id !== id);
+    const rawId = req.params.id;
+    const id = decodeURIComponent(rawId).trim();
+    const querySlug = typeof req.query.slug === "string" ? decodeURIComponent(req.query.slug).trim() : "";
+    const queryTitle = typeof req.query.title === "string" ? decodeURIComponent(req.query.title).trim() : "";
+    const bodySlug = req.body && typeof req.body.slug === "string" ? req.body.slug.trim() : "";
+    const bodyTitle = req.body && typeof req.body.title === "string" ? req.body.title.trim() : "";
 
-    if (stories.length === initialLen) {
-      return res.status(404).json({ success: false, message: "Story not found." });
+    const targetSlug = querySlug || bodySlug;
+    const targetTitle = queryTitle || bodyTitle;
+
+    let stories = loadPersistentStories();
+    const deletedMatches: any[] = [];
+    const remainingStories: any[] = [];
+
+    for (const s of stories) {
+      const isMatch =
+        s.id === id ||
+        (s.slug && s.slug === id) ||
+        (s.title && s.title.toLowerCase() === id.toLowerCase()) ||
+        (targetSlug && s.slug === targetSlug) ||
+        (targetTitle && s.title && s.title.toLowerCase() === targetTitle.toLowerCase());
+
+      if (isMatch) {
+        deletedMatches.push(s);
+      } else {
+        remainingStories.push(s);
+      }
     }
 
-    savePersistentStories(stories);
-    res.json({ success: true, message: "Story deleted successfully." });
+    // Collect all identifiers to blacklist from ever resurrecting
+    const idsToBlacklist: string[] = [id];
+    if (targetSlug) idsToBlacklist.push(targetSlug);
+    if (targetTitle) idsToBlacklist.push(targetTitle.toLowerCase());
+
+    for (const match of deletedMatches) {
+      if (match.id) idsToBlacklist.push(match.id);
+      if (match.slug) idsToBlacklist.push(match.slug);
+      if (match.title) idsToBlacklist.push(match.title.toLowerCase());
+    }
+
+    addPersistentDeletedStoryIds(idsToBlacklist);
+    savePersistentStories(remainingStories);
+
+    // Also remove any notifications corresponding to the deleted story
+    const notifications = loadPersistentNotifications();
+    const remainingNotifs = notifications.filter((n) => {
+      const matchesDeleted = idsToBlacklist.some(
+        (delId) => n.storyId === delId || n.storySlug === delId
+      );
+      return !matchesDeleted;
+    });
+    if (remainingNotifs.length !== notifications.length) {
+      savePersistentNotifications(remainingNotifs);
+    }
+
+    res.json({
+      success: true,
+      message: "Story deleted successfully.",
+      deletedCount: deletedMatches.length,
+      deletedIds: idsToBlacklist,
+    });
+  });
+
+  // POST /api/stories/batch-delete - Delete multiple stories simultaneously
+  app.post("/api/stories/batch-delete", (req, res) => {
+    const { ids, slugs, titles } = req.body || {};
+    const inputIds = Array.isArray(ids) ? ids.map((x: any) => String(x).trim()).filter(Boolean) : [];
+    const inputSlugs = Array.isArray(slugs) ? slugs.map((x: any) => String(x).trim()).filter(Boolean) : [];
+    const inputTitles = Array.isArray(titles) ? titles.map((x: any) => String(x).toLowerCase().trim()).filter(Boolean) : [];
+
+    let stories = loadPersistentStories();
+    const deletedMatches: any[] = [];
+    const remainingStories: any[] = [];
+
+    for (const s of stories) {
+      const idMatch = inputIds.includes(s.id) || (s.slug && inputIds.includes(s.slug));
+      const slugMatch = s.slug && inputSlugs.includes(s.slug);
+      const titleMatch = s.title && inputTitles.includes(s.title.toLowerCase());
+
+      if (idMatch || slugMatch || titleMatch) {
+        deletedMatches.push(s);
+      } else {
+        remainingStories.push(s);
+      }
+    }
+
+    const idsToBlacklist: string[] = [...inputIds, ...inputSlugs, ...inputTitles];
+    for (const match of deletedMatches) {
+      if (match.id) idsToBlacklist.push(match.id);
+      if (match.slug) idsToBlacklist.push(match.slug);
+      if (match.title) idsToBlacklist.push(match.title.toLowerCase());
+    }
+
+    addPersistentDeletedStoryIds(idsToBlacklist);
+    savePersistentStories(remainingStories);
+
+    // Clean notifications
+    const notifications = loadPersistentNotifications();
+    const remainingNotifs = notifications.filter((n) => {
+      return !idsToBlacklist.some((delId) => n.storyId === delId || n.storySlug === delId);
+    });
+    if (remainingNotifs.length !== notifications.length) {
+      savePersistentNotifications(remainingNotifs);
+    }
+
+    res.json({
+      success: true,
+      message: `${deletedMatches.length} stories deleted successfully.`,
+      deletedCount: deletedMatches.length,
+      deletedIds: idsToBlacklist,
+    });
+  });
+
+  // POST /api/stories/purge-legacy - Remove all legacy demo/sample stories and blacklist them
+  app.post("/api/stories/purge-legacy", (req, res) => {
+    let stories = loadPersistentStories();
+    const deletedMatches = stories.filter(isLegacySampleStory);
+    const remainingStories = stories.filter((s) => !isLegacySampleStory(s));
+
+    const idsToBlacklist: string[] = [...LEGACY_SAMPLE_IDS, ...LEGACY_SAMPLE_SLUGS];
+    for (const match of deletedMatches) {
+      if (match.id) idsToBlacklist.push(match.id);
+      if (match.slug) idsToBlacklist.push(match.slug);
+      if (match.title) idsToBlacklist.push(match.title.toLowerCase());
+    }
+
+    addPersistentDeletedStoryIds(idsToBlacklist);
+    savePersistentStories(remainingStories);
+
+    // Clean notifications
+    const notifications = loadPersistentNotifications();
+    const remainingNotifs = notifications.filter((n) => {
+      return !idsToBlacklist.some((delId) => n.storyId === delId || n.storySlug === delId);
+    });
+    if (remainingNotifs.length !== notifications.length) {
+      savePersistentNotifications(remainingNotifs);
+    }
+
+    res.json({
+      success: true,
+      message: `Cleaned ${deletedMatches.length} legacy sample stories.`,
+      purgedCount: deletedMatches.length,
+      deletedIds: idsToBlacklist,
+      remainingCount: remainingStories.length,
+    });
   });
 
   // NOTIFICATIONS API
@@ -569,20 +826,49 @@ async function startServer() {
     safeWriteJsonFile(SHINING_STARS_FILE, stars);
   }
 
+  function loadPersistentDeletedStarIds(): string[] {
+    if (deletedStarsCache !== null) return deletedStarsCache;
+    const stored = safeReadJsonFile<string[]>(DELETED_STARS_FILE, []);
+    deletedStarsCache = Array.isArray(stored) ? stored : [];
+    return deletedStarsCache;
+  }
+
+  function addPersistentDeletedStarIds(ids: string[]): void {
+    const current = loadPersistentDeletedStarIds();
+    const set = new Set(current);
+    let changed = false;
+    for (const rawId of ids) {
+      if (!rawId) continue;
+      const cleanId = String(rawId).trim();
+      if (cleanId && !set.has(cleanId)) {
+        set.add(cleanId);
+        changed = true;
+      }
+    }
+    if (changed) {
+      deletedStarsCache = Array.from(set);
+      safeWriteJsonFile(DELETED_STARS_FILE, deletedStarsCache);
+    }
+  }
+
   app.get("/api/shining-stars", (req, res) => {
     const stars = loadPersistentShiningStars();
-    res.json({ success: true, stars });
+    const deletedIds = loadPersistentDeletedStarIds();
+    const cleanStars = stars.filter((s) => !deletedIds.includes(s.id));
+    res.json({ success: true, stars: cleanStars, deletedIds });
   });
 
   // POST /api/shining-stars/sync - Reconcile client shining stars with server storage
   app.post("/api/shining-stars/sync", (req, res) => {
     const { clientStars } = req.body || {};
     const stars = loadPersistentShiningStars();
+    const deletedIds = loadPersistentDeletedStarIds();
 
     if (Array.isArray(clientStars) && clientStars.length > 0) {
       let updated = false;
       for (const clientStar of clientStars) {
         if (!clientStar || !isValidStar(clientStar)) continue;
+        if (clientStar.id && deletedIds.includes(clientStar.id)) continue;
         const id = clientStar.id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const existingIdx = stars.findIndex((s) => s.id === id);
         if (existingIdx === -1) {
@@ -595,7 +881,8 @@ async function startServer() {
       }
     }
 
-    res.json({ success: true, stars });
+    const cleanStars = stars.filter((s) => !deletedIds.includes(s.id));
+    res.json({ success: true, stars: cleanStars, deletedIds });
   });
 
   app.post("/api/shining-stars", (req, res) => {
@@ -612,6 +899,13 @@ async function startServer() {
       division: String(division).trim(),
       createdAt: createdAt || new Date().toISOString(),
     };
+
+    // Remove from deleted list if recreating
+    const deletedIds = loadPersistentDeletedStarIds();
+    if (deletedIds.includes(newStar.id)) {
+      deletedStarsCache = deletedIds.filter((d) => d !== newStar.id);
+      safeWriteJsonFile(DELETED_STARS_FILE, deletedStarsCache);
+    }
 
     const existingIdx = stars.findIndex((s) => s.id === newStar.id);
     if (existingIdx >= 0) {
@@ -646,15 +940,11 @@ async function startServer() {
   app.delete("/api/shining-stars/:id", (req, res) => {
     const { id } = req.params;
     let stars = loadPersistentShiningStars();
-    const initialLen = stars.length;
     stars = stars.filter((s) => s.id !== id);
 
-    if (stars.length === initialLen) {
-      return res.status(404).json({ success: false, message: "Shining star not found." });
-    }
-
+    addPersistentDeletedStarIds([id]);
     savePersistentShiningStars(stars);
-    res.json({ success: true, message: "Shining star deleted successfully." });
+    res.json({ success: true, message: "Shining star deleted successfully.", deletedIds: [id] });
   });
 
 

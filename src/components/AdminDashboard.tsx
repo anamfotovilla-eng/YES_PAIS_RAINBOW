@@ -14,6 +14,9 @@ import {
   addStory,
   updateStory,
   deleteStory,
+  deleteStoriesBatch,
+  purgeLegacyStories,
+  isStoryDeleted,
   addModule,
   updateModule,
   deleteModule,
@@ -113,6 +116,11 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
   const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [isCreatingStory, setIsCreatingStory] = useState(false);
   const [storyToDelete, setStoryToDelete] = useState<Story | null>(null);
+  const [selectedStoryIds, setSelectedStoryIds] = useState<string[]>([]);
+  const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [showPurgeLegacyModal, setShowPurgeLegacyModal] = useState(false);
+  const [isPurgingLegacy, setIsPurgingLegacy] = useState(false);
   const [storyForm, setStoryForm] = useState({
     title: "",
     studentName: "",
@@ -571,24 +579,113 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
 
   const handleConfirmDeleteStory = async () => {
     if (!storyToDelete) return;
-    const targetId = storyToDelete.id;
-    const targetTitle = storyToDelete.title;
+    const target = storyToDelete;
+    const targetId = target.id;
+    const targetTitle = target.title;
+    const targetSlug = target.slug;
 
-    await deleteStory(targetId);
+    // 1. Immediately remove from UI state
+    setStories((prev) =>
+      prev.filter(
+        (s) =>
+          s.id !== targetId &&
+          (!targetSlug || s.slug !== targetSlug) &&
+          s.title.toLowerCase().trim() !== targetTitle.toLowerCase().trim()
+      )
+    );
+    setSelectedStoryIds((prev) => prev.filter((id) => id !== targetId));
 
-    if (editingStory && editingStory.id === targetId) {
+    if (editingStory && (editingStory.id === targetId || editingStory.slug === targetSlug)) {
       setEditingStory(null);
       setIsCreatingStory(false);
     }
 
     setStoryToDelete(null);
     triggerToast(`"${targetTitle}" deleted successfully.`);
+
+    // 2. Persist deletion
+    await deleteStory(target);
     await refreshData();
   };
 
   const handleCancelDeleteStory = () => {
     setStoryToDelete(null);
   };
+
+  const handleSelectAllStories = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedStoryIds(filteredStories.map((s) => s.id));
+    } else {
+      setSelectedStoryIds([]);
+    }
+  };
+
+  const handleToggleSelectStory = (id: string) => {
+    setSelectedStoryIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleConfirmBatchDelete = async () => {
+    if (selectedStoryIds.length === 0) return;
+    setIsBatchDeleting(true);
+    const count = selectedStoryIds.length;
+    const idsToDelete = [...selectedStoryIds];
+
+    // Immediately remove from UI
+    setStories((prev) => prev.filter((s) => !idsToDelete.includes(s.id)));
+    setSelectedStoryIds([]);
+    setShowBatchDeleteModal(false);
+
+    try {
+      await deleteStoriesBatch(idsToDelete);
+      triggerToast(`Permanently deleted ${count} stories successfully.`);
+      await refreshData();
+    } catch {
+      triggerToast("Error deleting selected stories.", "error");
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
+  const handleConfirmPurgeLegacy = async () => {
+    setIsPurgingLegacy(true);
+    try {
+      const res = await purgeLegacyStories();
+      setShowPurgeLegacyModal(false);
+      setSelectedStoryIds([]);
+      triggerToast(`Cleaned ${res.purgedCount} legacy sample stories.`);
+      await refreshData();
+    } catch {
+      triggerToast("Failed to clean legacy stories.", "error");
+    } finally {
+      setIsPurgingLegacy(false);
+    }
+  };
+
+  const legacySampleCount = stories.filter((s) => {
+    const id = s.id || "";
+    const slug = (s.slug || "").toLowerCase();
+    const title = (s.title || "").toLowerCase();
+    return (
+      /^story-[0-9]{1,2}$/.test(id) ||
+      slug.includes("banyan") ||
+      slug.includes("desert-fox") ||
+      slug.includes("dolphin") ||
+      slug.includes("wood-wide-web") ||
+      slug.includes("golden-quill") ||
+      slug.includes("golden-gate") ||
+      title.includes("whispering banyan") ||
+      title.includes("desert fox") ||
+      title.includes("courageous dolphin") ||
+      title.includes("wood wide web") ||
+      title.includes("quantum compass") ||
+      title.includes("golden quill") ||
+      title.includes("golden gate") ||
+      title === "xffg" ||
+      title === "abcd"
+    );
+  }).length;
 
   const handleTogglePublish = async (story: Story) => {
     await updateStory(story.id, { isPublished: !story.isPublished });
@@ -976,7 +1073,28 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedStoryIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBatchDeleteModal(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-sans font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap animate-scaleIn"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete Selected ({selectedStoryIds.length})</span>
+                    </button>
+                  )}
+                  {legacySampleCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPurgeLegacyModal(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-sans font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer whitespace-nowrap"
+                      title="Purge lingering legacy template stories from catalog and server"
+                    >
+                      <Trash2 className="w-4 h-4 text-amber-600" />
+                      <span>Clean Old Demo Stories ({legacySampleCount})</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleExportStoriesJson}
@@ -1011,6 +1129,15 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                 <table className="w-full text-left text-sm text-natural-text border-collapse">
                   <thead>
                     <tr className="border-b border-natural-border/80 bg-natural-light/50 text-natural-muted text-xs font-sans font-bold uppercase tracking-wider">
+                      <th className="py-3 px-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={filteredStories.length > 0 && selectedStoryIds.length === filteredStories.length}
+                          onChange={handleSelectAllStories}
+                          className="w-4 h-4 rounded border-natural-border text-natural-primary focus:ring-natural-primary cursor-pointer accent-indigo-600"
+                          title="Select All Stories"
+                        />
+                      </th>
                       <th className="py-3 px-4">Story Title &amp; Student</th>
                       <th className="py-3 px-4">Grade / Class</th>
                       <th className="py-3 px-4">Module</th>
@@ -1021,7 +1148,7 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                   <tbody className="divide-y divide-natural-border/40">
                     {filteredStories.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-12 text-center text-natural-sand">
+                        <td colSpan={6} className="py-12 text-center text-natural-sand">
                           {selectedAdminGradeId !== "all" ? (
                             <div>
                               <p className="font-semibold text-natural-heading">
@@ -1059,9 +1186,23 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                       filteredStories.map((story) => {
                         const storyGrade = grades.find((g) => g.id === story.gradeId);
                         const storyMod = modules.find((m) => m.id === story.moduleId);
+                        const isSelected = selectedStoryIds.includes(story.id);
 
                         return (
-                          <tr key={story.id} className="hover:bg-natural-light/30 transition-colors">
+                          <tr
+                            key={story.id}
+                            className={`transition-colors ${
+                              isSelected ? "bg-indigo-50/50" : "hover:bg-natural-light/30"
+                            }`}
+                          >
+                            <td className="py-4 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelectStory(story.id)}
+                                className="w-4 h-4 rounded border-natural-border text-natural-primary focus:ring-natural-primary cursor-pointer accent-indigo-600"
+                              />
+                            </td>
                             <td className="py-4 px-4">
                               <div className="flex items-center gap-3">
                                 <img
@@ -2300,6 +2441,112 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Yes, Delete Story
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Story Deletion Confirmation Modal */}
+      {showBatchDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowBatchDeleteModal(false)}
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-scaleIn text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-800">
+                  Delete {selectedStoryIds.length} Selected Stories?
+                </h3>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  Are you sure you want to permanently delete all{" "}
+                  <span className="font-bold text-slate-900">{selectedStoryIds.length}</span> selected stories?
+                </p>
+                <p className="text-xs text-rose-600 font-medium mt-2 leading-relaxed">
+                  This action cannot be undone. These stories will be removed from your catalog and permanently blacklisted so they never reappear after refresh.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteModal(false)}
+                disabled={isBatchDeleting}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBatchDelete}
+                disabled={isBatchDeleting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {isBatchDeleting ? "Deleting..." : `Delete ${selectedStoryIds.length} Stories`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Legacy Sample Stories Purge Modal */}
+      {showPurgeLegacyModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowPurgeLegacyModal(false)}
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-scaleIn text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-800">
+                  Clean {legacySampleCount} Old Demo Stories?
+                </h3>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  This will permanently wipe all <span className="font-bold text-slate-900">{legacySampleCount}</span> legacy demo/sample stories (such as the default template stories) from your browser and backend database.
+                </p>
+                <div className="mt-2.5 p-2.5 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center gap-2 text-[11px] text-emerald-800 font-medium">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>All your newly created custom stories will remain completely safe.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowPurgeLegacyModal(false)}
+                disabled={isPurgingLegacy}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmPurgeLegacy}
+                disabled={isPurgingLegacy}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {isPurgingLegacy ? "Cleaning..." : `Clean ${legacySampleCount} Demo Stories`}
               </button>
             </div>
           </div>
