@@ -794,6 +794,16 @@ async function startServer() {
     if (Array.isArray(stored)) {
       const validStars = stored.filter(isValidStar);
       starsCache = validStars;
+
+      // Reconcile: Any star present in shining-stars.json is active and intentional
+      const activeIds = new Set(validStars.map((s) => String(s.id).toLowerCase()));
+      const currentDeleted = loadPersistentDeletedStarIds();
+      const reconciled = currentDeleted.filter((del) => !activeIds.has(String(del).toLowerCase()));
+      if (reconciled.length !== currentDeleted.length) {
+        deletedStarsCache = reconciled;
+        safeWriteJsonFile(DELETED_STARS_FILE, reconciled);
+      }
+
       return validStars;
     }
 
