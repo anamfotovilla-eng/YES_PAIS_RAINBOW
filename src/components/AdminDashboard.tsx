@@ -1050,11 +1050,11 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                 </div>
               </div>
 
-              {/* Deployment & Git Persistence Advisory */}
+              {/* Live Portal Persistence Banner */}
               <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-3.5 mb-5 text-xs text-indigo-900 flex items-start gap-2.5">
                 <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
                 <div className="leading-relaxed">
-                  <span className="font-bold">Deployment &amp; Git Sync:</span> Stories added here are stored locally and synced with the backend. When using the <span className="font-semibold">Antigravity &rarr; GitHub &rarr; Render</span> workflow, click <span className="font-semibold">"Export stories.json"</span> and save the file into <code className="bg-white/80 px-1.5 py-0.5 rounded border border-indigo-200 text-indigo-950 font-mono">data/stories.json</code> so that all your stories are permanently committed in Git and never lost when Render restarts or redeploys!
+                  <span className="font-bold">Live Portal Management:</span> Stories added, edited, or deleted here are immediately saved and synchronized with the database. They remain active until you explicitly delete them from this portal. (Optional: Use <span className="font-semibold">"Export stories.json"</span> if you ever need an offline JSON backup.)
                 </div>
               </div>
 
@@ -2121,7 +2121,7 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
                     type="button"
                     onClick={handleExportStarsJson}
                     className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white hover:bg-amber-50/50 text-slate-800 border border-amber-300 font-sans font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer whitespace-nowrap"
-                    title="Export shining stars as JSON file to save into data/shining-stars.json"
+                    title="Download an optional offline JSON backup of all shining stars"
                   >
                     <Download className="w-4 h-4 text-amber-600" />
                     <span>Export shining-stars.json</span>

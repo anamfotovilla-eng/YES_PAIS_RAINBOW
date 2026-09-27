@@ -802,8 +802,9 @@ async function startServer() {
 
       // Reconcile: Any star present in shining-stars.json is active and intentional
       const activeIds = new Set(validStars.map((s) => String(s.id).toLowerCase()));
+      const activeSignatures = new Set(validStars.map((s) => `${String(s.studentName || "").toLowerCase().trim()}|${String(s.className || "").toLowerCase().trim()}|${String(s.division || "").toLowerCase().trim()}`));
       const currentDeleted = loadPersistentDeletedStarIds();
-      const reconciled = currentDeleted.filter((del) => !activeIds.has(String(del).toLowerCase()));
+      const reconciled = currentDeleted.filter((del) => !activeIds.has(String(del).toLowerCase()) && !activeSignatures.has(String(del).toLowerCase()));
       if (reconciled.length !== currentDeleted.length) {
         deletedStarsCache = reconciled;
         safeWriteJsonFile(DELETED_STARS_FILE, reconciled);
@@ -865,10 +866,19 @@ async function startServer() {
         if (!clientStar || !isValidStar(clientStar)) continue;
         if (clientStar.id && deletedIds.includes(clientStar.id)) continue;
         const id = clientStar.id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-        const existingIdx = stars.findIndex((s) => s.id === id);
+        const starSig = `${String(clientStar.studentName || "").toLowerCase().trim()}|${String(clientStar.className || "").toLowerCase().trim()}|${String(clientStar.division || "").toLowerCase().trim()}`;
+        if (deletedIds.includes(starSig)) continue;
+
+        const existingIdx = stars.findIndex(
+          (s) =>
+            s.id === id ||
+            `${String(s.studentName || "").toLowerCase().trim()}|${String(s.className || "").toLowerCase().trim()}|${String(s.division || "").toLowerCase().trim()}` === starSig
+        );
         if (existingIdx === -1) {
           stars.unshift({ ...clientStar, id });
           updated = true;
+        } else {
+          stars[existingIdx] = { ...stars[existingIdx], ...clientStar };
         }
       }
       if (updated) {
@@ -895,14 +905,20 @@ async function startServer() {
       createdAt: createdAt || new Date().toISOString(),
     };
 
+    const starSig = `${newStar.studentName.toLowerCase().trim()}|${newStar.className.toLowerCase().trim()}|${newStar.division.toLowerCase().trim()}`;
+
     // Remove from deleted list if recreating
     const deletedIds = loadPersistentDeletedStarIds();
-    if (deletedIds.includes(newStar.id)) {
-      deletedStarsCache = deletedIds.filter((d) => d !== newStar.id);
+    if (deletedIds.includes(newStar.id) || deletedIds.includes(starSig)) {
+      deletedStarsCache = deletedIds.filter((d) => d !== newStar.id && d.toLowerCase() !== starSig);
       safeWriteJsonFile(DELETED_STARS_FILE, deletedStarsCache);
     }
 
-    const existingIdx = stars.findIndex((s) => s.id === newStar.id);
+    const existingIdx = stars.findIndex(
+      (s) =>
+        s.id === newStar.id ||
+        `${String(s.studentName || "").toLowerCase().trim()}|${String(s.className || "").toLowerCase().trim()}|${String(s.division || "").toLowerCase().trim()}` === starSig
+    );
     if (existingIdx >= 0) {
       stars[existingIdx] = newStar;
     } else {
@@ -939,9 +955,16 @@ async function startServer() {
       return res.status(400).json({ success: false, message: "Star ID is required." });
     }
     let stars = loadPersistentShiningStars();
-    stars = stars.filter((s) => s.id !== id && String(s.id).toLowerCase() !== id.toLowerCase());
+    const idLower = id.toLowerCase();
+    const target = stars.find((s) => s.id === id || String(s.id).toLowerCase() === idLower);
+    stars = stars.filter((s) => s.id !== id && String(s.id).toLowerCase() !== idLower);
 
-    addPersistentDeletedStarIds([id, id.toLowerCase()]);
+    const idsToBlacklist = [id, idLower];
+    if (target) {
+      idsToBlacklist.push(`${String(target.studentName || "").toLowerCase().trim()}|${String(target.className || "").toLowerCase().trim()}|${String(target.division || "").toLowerCase().trim()}`);
+    }
+
+    addPersistentDeletedStarIds(idsToBlacklist);
     savePersistentShiningStars(stars);
     res.json({ success: true, message: "Shining star deleted successfully.", deletedIds: [id] });
   };

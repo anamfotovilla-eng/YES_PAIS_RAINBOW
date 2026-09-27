@@ -352,28 +352,76 @@ export const clearAllNotificationsAsync = async (): Promise<void> => {
   } catch {}
 };
 
-// Server API sync for stories - server is authoritative source of truth
+// Server API sync for stories - server is authoritative source of truth with bidirectional resilience
 export const fetchStoriesAsync = async (): Promise<Story[]> => {
+  const localStories = getStories();
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+  const deletedSet = new Set(deletedIds.map((d) => String(d).toLowerCase().trim()));
+
   try {
     const res = await fetch("/api/stories");
     if (res.ok) {
       const data = await res.json();
-      if (data && Array.isArray(data.stories) && data.stories.length > 0) {
-        setLocalStorage(KEYS.STORIES, data.stories);
-        // Any story present on server is active and must be un-blacklisted on client
-        const activeIds = new Set(data.stories.map((s: Story) => String(s.id).toLowerCase()));
-        const clientDeleted = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-        const cleaned = clientDeleted.filter((d) => !activeIds.has(String(d).toLowerCase()));
-        if (cleaned.length !== clientDeleted.length) {
-          setLocalStorage(KEYS.DELETED_STORIES, cleaned);
+      if (data && Array.isArray(data.stories)) {
+        if (Array.isArray(data.deletedIds)) {
+          for (const d of data.deletedIds) {
+            deletedSet.add(String(d).toLowerCase().trim());
+          }
+          setLocalStorage(KEYS.DELETED_STORIES, Array.from(deletedSet));
         }
-        return data.stories;
+
+        const serverStories: Story[] = data.stories.filter(
+          (s: Story) =>
+            s &&
+            s.title &&
+            s.content &&
+            !deletedSet.has(String(s.id).toLowerCase().trim()) &&
+            !deletedSet.has(String(s.slug || "").toLowerCase().trim())
+        );
+
+        // Merge: keep all server stories, plus any active local stories not yet on server
+        const storyMap = new Map<string, Story>();
+        const storyKey = (s: Story): string => (s.slug || "").trim().toLowerCase() || (s.title || "").trim().toLowerCase() || s.id;
+
+        for (const s of serverStories) {
+          storyMap.set(storyKey(s), s);
+        }
+
+        const unSyncedStories: Story[] = [];
+        for (const local of localStories) {
+          if (!local || !local.title || !local.content) continue;
+          if (
+            deletedSet.has(String(local.id).toLowerCase().trim()) ||
+            deletedSet.has(String(local.slug || "").toLowerCase().trim())
+          ) {
+            continue;
+          }
+          const k = storyKey(local);
+          if (!storyMap.has(k)) {
+            storyMap.set(k, local);
+            unSyncedStories.push(local);
+          }
+        }
+
+        const mergedStories = Array.from(storyMap.values());
+        setLocalStorage(KEYS.STORIES, mergedStories);
+
+        // Auto-push any locally created stories to the server if missing from server
+        if (unSyncedStories.length > 0) {
+          fetch("/api/stories/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientStories: unSyncedStories }),
+          }).catch(() => {});
+        }
+
+        return mergedStories;
       }
     }
   } catch (err) {
     // Offline or static preview fallback
   }
-  return getStories();
+  return localStories;
 };
 
 // Story Helpers (Client resilient & server synced)
@@ -940,26 +988,51 @@ export const isDefaultStar = (_s: ShiningStar): boolean => false;
 
 export const getShiningStars = (): ShiningStar[] => {
   const stored = getLocalStorage<ShiningStar[]>(KEYS.SHINING_STARS, DEFAULT_SHINING_STARS);
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
+  const deletedSet = new Set(deletedIds.map((d) => String(d).toLowerCase().trim()));
 
-  const storedIds = new Set(stored.map((s) => s.id));
-  const missingBundled = DEFAULT_SHINING_STARS.filter((b) => !storedIds.has(b.id));
+  const starMap = new Map<string, ShiningStar>();
+  const starKey = (s: ShiningStar) =>
+    `${(s.studentName || "").toLowerCase().trim()}|${(s.className || "").toLowerCase().trim()}|${(s.division || "").toLowerCase().trim()}`;
 
-  const combined = missingBundled.length > 0 ? [...stored, ...missingBundled] : stored;
-  const filtered = combined.filter((s) => s && s.studentName && s.className && s.division);
-  if (filtered.length !== stored.length) {
-    setLocalStorage(KEYS.SHINING_STARS, filtered);
+  // 1. Add bundled DEFAULT_SHINING_STARS first
+  if (Array.isArray(DEFAULT_SHINING_STARS)) {
+    for (const s of DEFAULT_SHINING_STARS) {
+      if (s && s.id && s.studentName && s.className && s.division) {
+        if (!deletedSet.has(String(s.id).toLowerCase().trim())) {
+          starMap.set(starKey(s), s);
+        }
+      }
+    }
   }
-  return filtered;
+
+  // 2. Merge stored stars from localStorage
+  if (Array.isArray(stored)) {
+    for (const s of stored) {
+      if (s && s.id && s.studentName && s.className && s.division) {
+        if (!deletedSet.has(String(s.id).toLowerCase().trim())) {
+          starMap.set(starKey(s), s);
+        }
+      }
+    }
+  }
+
+  const result = Array.from(starMap.values());
+  if (result.length !== stored.length) {
+    setLocalStorage(KEYS.SHINING_STARS, result);
+  }
+  return result;
 };
 
 export const saveShiningStars = (stars: ShiningStar[]): void => {
   setLocalStorage(KEYS.SHINING_STARS, stars);
 };
 
-// Server API sync for Shining Stars - server is authoritative
+// Server API sync for Shining Stars - bidirectional auto-persistence
 export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
   const localStars = getShiningStars();
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
+  const deletedSet = new Set(deletedIds.map((d) => String(d).toLowerCase().trim()));
 
   try {
     const res = await fetch("/api/shining-stars");
@@ -967,25 +1040,64 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
       const data = await res.json();
       if (data && Array.isArray(data.stars)) {
         if (Array.isArray(data.deletedIds)) {
-          const mergedDeleted = new Set([...deletedIds, ...data.deletedIds]);
-          if (mergedDeleted.size !== deletedIds.length) {
-            setLocalStorage(KEYS.DELETED_STARS, Array.from(mergedDeleted));
+          for (const d of data.deletedIds) {
+            deletedSet.add(String(d).toLowerCase().trim());
           }
+          setLocalStorage(KEYS.DELETED_STARS, Array.from(deletedSet));
         }
-        const effectiveDeleted = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
 
-        const serverStars: ShiningStar[] = data.stories ? [] : data.stars.filter(
-          (s: ShiningStar) => s && s.studentName && s.className && s.division && !effectiveDeleted.includes(s.id)
+        const serverStars: ShiningStar[] = data.stars.filter(
+          (s: ShiningStar) =>
+            s &&
+            s.studentName &&
+            s.className &&
+            s.division &&
+            !deletedSet.has(String(s.id).toLowerCase().trim())
         );
 
-        setLocalStorage(KEYS.SHINING_STARS, serverStars);
-        return serverStars;
+        // Merge: keep all server stars, plus any local stars not yet on server and not deleted
+        const starMap = new Map<string, ShiningStar>();
+        const starKey = (s: ShiningStar) =>
+          `${(s.studentName || "").toLowerCase().trim()}|${(s.className || "").toLowerCase().trim()}|${(s.division || "").toLowerCase().trim()}`;
+
+        // 1. Add valid server stars
+        for (const s of serverStars) {
+          starMap.set(starKey(s), s);
+        }
+
+        // 2. Add local active stars that are missing from server
+        const unSyncedStars: ShiningStar[] = [];
+        for (const local of localStars) {
+          if (!local || !local.studentName || deletedSet.has(String(local.id).toLowerCase().trim())) {
+            continue;
+          }
+          const k = starKey(local);
+          if (!starMap.has(k)) {
+            starMap.set(k, local);
+            unSyncedStars.push(local);
+          }
+        }
+
+        const mergedStars = Array.from(starMap.values());
+        setLocalStorage(KEYS.SHINING_STARS, mergedStars);
+
+        // If client had active stars that server was missing, auto-sync them to server!
+        if (unSyncedStars.length > 0) {
+          fetch("/api/shining-stars/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientStars: unSyncedStars }),
+          }).catch(() => {});
+        }
+
+        return mergedStars;
       }
     }
   } catch (err) {
     // Offline or static fallback
   }
-  return localStars;
+
+  return localStars.filter((s) => !deletedSet.has(String(s.id).toLowerCase().trim()));
 };
 
 export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">): Promise<ShiningStar> => {
@@ -995,6 +1107,24 @@ export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">
     createdAt: new Date().toISOString(),
   };
 
+  // If deliberately re-adding a student that was previously deleted, remove from deleted IDs
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
+  const starSig = `${newStar.studentName.toLowerCase().trim()}|${newStar.className.toLowerCase().trim()}|${newStar.division.toLowerCase().trim()}`;
+  const cleanedDeleted = deletedIds.filter((d) => d !== newStar.id && d.toLowerCase() !== starSig);
+  if (cleanedDeleted.length !== deletedIds.length) {
+    setLocalStorage(KEYS.DELETED_STARS, cleanedDeleted);
+  }
+
+  // 1. Save to local storage immediately so it is never lost
+  const current = getShiningStars();
+  const updated = [newStar, ...current.filter((s) => s.id !== newStar.id && starSig !== `${s.studentName.toLowerCase().trim()}|${s.className.toLowerCase().trim()}|${s.division.toLowerCase().trim()}`)];
+  saveShiningStars(updated);
+
+  try {
+    window.dispatchEvent(new Event("storage"));
+  } catch {}
+
+  // 2. Persist to server API
   try {
     const res = await fetch("/api/shining-stars", {
       method: "POST",
@@ -1004,19 +1134,16 @@ export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">
     if (res.ok) {
       const data = await res.json();
       if (data && data.star) {
-        const current = getShiningStars();
-        const updated = [data.star, ...current.filter((s) => s.id !== data.star.id)];
-        saveShiningStars(updated);
+        const fresh = getShiningStars();
+        const freshUpdated = [data.star, ...fresh.filter((s) => s.id !== data.star.id && s.id !== newStar.id)];
+        saveShiningStars(freshUpdated);
         return data.star;
       }
     }
   } catch (err) {
-    console.warn("Failed to persist shining star to server API:", err);
+    console.warn("Failed to persist shining star to server API, cached locally:", err);
   }
 
-  const current = getShiningStars();
-  const updated = [newStar, ...current.filter((s) => s.id !== newStar.id)];
-  saveShiningStars(updated);
   return newStar;
 };
 
@@ -1027,6 +1154,14 @@ export const updateShiningStar = async (id: string, updatedData: Partial<Shining
     ? { ...current[index], ...updatedData }
     : ({ id, studentName: "", className: "", division: "", createdAt: new Date().toISOString(), ...updatedData } as ShiningStar);
 
+  // Update localStorage immediately
+  const fresh = current.map((s) => (s.id === id ? updated : s));
+  saveShiningStars(fresh);
+
+  try {
+    window.dispatchEvent(new Event("storage"));
+  } catch {}
+
   try {
     const res = await fetch(`/api/shining-stars/${id}`, {
       method: "PUT",
@@ -1036,8 +1171,8 @@ export const updateShiningStar = async (id: string, updatedData: Partial<Shining
     if (res.ok) {
       const data = await res.json();
       if (data && data.star) {
-        const fresh = current.map((s) => (s.id === id ? data.star : s));
-        saveShiningStars(fresh);
+        const serverFresh = getShiningStars().map((s) => (s.id === id ? data.star : s));
+        saveShiningStars(serverFresh);
         return data.star;
       }
     }
@@ -1045,20 +1180,21 @@ export const updateShiningStar = async (id: string, updatedData: Partial<Shining
     console.warn("Failed to sync shining star update to server API:", err);
   }
 
-  if (index !== -1) {
-    current[index] = updated;
-    saveShiningStars(current);
-  }
   return updated;
 };
 
 export const deleteShiningStar = async (id: string): Promise<void> => {
-  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
-  if (!deletedIds.includes(id)) {
-    setLocalStorage(KEYS.DELETED_STARS, [...deletedIds, id]);
-  }
-
   const current = getShiningStars();
+  const targetStar = current.find((s) => s.id === id);
+
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
+  const toAdd = [id];
+  if (targetStar) {
+    toAdd.push(`${targetStar.studentName.toLowerCase().trim()}|${targetStar.className.toLowerCase().trim()}|${targetStar.division.toLowerCase().trim()}`);
+  }
+  const mergedDeleted = Array.from(new Set([...deletedIds, ...toAdd]));
+  setLocalStorage(KEYS.DELETED_STARS, mergedDeleted);
+
   const filtered = current.filter((s) => s.id !== id);
   saveShiningStars(filtered);
 
