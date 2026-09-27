@@ -813,27 +813,20 @@ async function startServer() {
   });
 
   app.patch("/api/notifications/:id/read", (req, res) => {
+    // Read status is managed independently per user on their own client/device.
+    // Return success without mutating the shared server notification feed for other users.
     const { id } = req.params;
-    const notifications = loadPersistentNotifications();
-    const item = notifications.find((n) => n.id === id);
-    if (!item) {
-      return res.status(404).json({ success: false, message: "Notification not found." });
-    }
-    item.isRead = true;
-    savePersistentNotifications(notifications);
-    res.json({ success: true, notification: item });
+    res.json({ success: true, message: `Notification ${id} read acknowledged for this user.` });
   });
 
   app.post("/api/notifications/mark-all-read", (req, res) => {
-    const notifications = loadPersistentNotifications();
-    notifications.forEach((n) => (n.isRead = true));
-    savePersistentNotifications(notifications);
-    res.json({ success: true, message: "All notifications marked as read." });
+    // Marking all as read is private per-user; acknowledge without mutating shared server feed.
+    res.json({ success: true, message: "Mark-all-read acknowledged for this user." });
   });
 
   app.delete("/api/notifications", (req, res) => {
-    savePersistentNotifications([]);
-    res.json({ success: true, message: "Notifications cleared." });
+    // An individual user clearing their notification panel must not delete the broadcast feed for other users.
+    res.json({ success: true, message: "Notifications cleared for this user." });
   });
 
   // SHINING STARS API (Persistent file-backed storage with memory cache)

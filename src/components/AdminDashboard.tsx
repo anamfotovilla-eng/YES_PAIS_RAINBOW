@@ -66,7 +66,9 @@ import {
   UserPlus,
   Download,
   FileJson,
+  X,
 } from "lucide-react";
+import { matchesStorySearch } from "../lib/search";
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -773,12 +775,8 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
     if (selectedAdminGradeId !== "all" && s.gradeId !== selectedAdminGradeId) {
       return false;
     }
-    const query = adminSearch.toLowerCase().trim();
-    if (!query) return true;
-    const titleMatch = s.title.toLowerCase().includes(query);
-    const descMatch = s.description.toLowerCase().includes(query);
-    const studentMatch = (s.studentName || "").toLowerCase().includes(query);
-    return titleMatch || descMatch || studentMatch;
+    if (!adminSearch.trim()) return true;
+    return matchesStorySearch(s, adminSearch, grades, modules);
   });
 
   return (
@@ -1063,14 +1061,25 @@ export default function AdminDashboard({ onLogout, onNavigateHome }: AdminDashbo
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 {/* Internal table search bar */}
                 <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-3.5 w-4 h-4 text-natural-sand" />
+                  <Search className="absolute left-3 top-3.5 w-4 h-4 text-natural-sand pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Search stories by title, student author, snippet..."
+                    placeholder="Search by title, student author, keywords..."
                     value={adminSearch}
                     onChange={(e) => setAdminSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-natural-border bg-natural-bg/50 text-sm focus:outline-none focus:ring-2 focus:ring-natural-primary text-natural-heading placeholder-natural-sand"
+                    className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-natural-border bg-natural-bg/50 text-sm focus:outline-none focus:ring-2 focus:ring-natural-primary text-natural-heading placeholder-natural-sand"
                   />
+                  {adminSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setAdminSearch("")}
+                      className="absolute right-2.5 top-3 p-0.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+                      title="Clear search"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">

@@ -24,7 +24,8 @@ import {
   fetchShiningStarsAsync,
 } from "./lib/storage";
 import ShiningStarsSection from "./components/ShiningStarsSection";
-import { BookOpen, Search, Sparkles, FilterX, HelpCircle, Layers, ArrowRight } from "lucide-react";
+import { BookOpen, Search, Sparkles, FilterX, HelpCircle, Layers, ArrowRight, X } from "lucide-react";
+import { matchesStorySearch } from "./lib/search";
 
 const STORIES_PER_PAGE = 6;
 
@@ -100,19 +101,42 @@ export default function App() {
       handleSync();
     }, 8000);
 
+    const handleUserNotificationsChange = () => {
+      setNotifications(getNotifications());
+    };
+
     window.addEventListener("hashchange", handleHashChange);
     window.addEventListener("storage", handleStorageChange);
     window.addEventListener("focus", handleSync);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("yespaistory_user_notifications_changed", handleUserNotificationsChange);
 
     return () => {
       window.removeEventListener("hashchange", handleHashChange);
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("focus", handleSync);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("yespaistory_user_notifications_changed", handleUserNotificationsChange);
       clearInterval(pollInterval);
     };
   }, []);
+
+  // When a user opens any story (from notification panel or catalog), mark only this user's notification as read
+  useEffect(() => {
+    if (currentRoute.startsWith("#/story/")) {
+      const slug = decodeURIComponent(currentRoute.replace("#/story/", "")).trim().toLowerCase();
+      const unreadMatchingNotif = notifications.find(
+        (n) =>
+          !n.isRead &&
+          ((n.storySlug && n.storySlug.toLowerCase() === slug) ||
+            (n.storyId && n.storyId.toLowerCase() === slug))
+      );
+      if (unreadMatchingNotif) {
+        markNotificationReadAsync(unreadMatchingNotif.id);
+        setNotifications(getNotifications());
+      }
+    }
+  }, [currentRoute, notifications]);
 
   const refreshAppDatabase = () => {
     setStories(getStories());
@@ -124,17 +148,17 @@ export default function App() {
 
   const handleMarkAllRead = () => {
     markAllNotificationsReadAsync();
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setNotifications(getNotifications());
   };
 
   const handleMarkRead = (id: string) => {
     markNotificationReadAsync(id);
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    setNotifications(getNotifications());
   };
 
   const handleClearAll = () => {
     clearAllNotificationsAsync();
-    setNotifications([]);
+    setNotifications(getNotifications());
   };
 
   const handleNavigate = (route: string) => {
@@ -158,38 +182,28 @@ export default function App() {
   };
 
   // Advanced Search and Filter Logic:
-  // "Search stories by: Story title, Module name, Keywords, Grade."
-  // Show only published stories on the public homepage.
+  // Matches Author/Student name, Keywords, Story title, Module, and Grade with typo tolerance.
   const publicPublishedStories = stories.filter((s) => s.isPublished);
+  const hasSearch = searchQuery.trim() !== "";
 
-  const filteredStories = publicPublishedStories.filter((story) => {
-    // 1. Grade Filtering
+  // Stories matching query across all grades
+  const matchingAllGrades = hasSearch
+    ? publicPublishedStories.filter((s) => matchesStorySearch(s, searchQuery, grades, modules))
+    : publicPublishedStories;
+
+  // Final filtered list respecting current grade selection
+  const filteredStories = matchingAllGrades.filter((story) => {
     if (selectedGradeId !== "all" && story.gradeId !== selectedGradeId) {
       return false;
     }
-
-    // 2. Search Query Matching (title, module name, keywords, grade name)
-    if (searchQuery.trim() !== "") {
-      const query = searchQuery.toLowerCase().trim();
-      const storyTitle = story.title.toLowerCase();
-      const storyKeywords = story.keywords?.map((k) => k.toLowerCase()) || [];
-      
-      const storyGrade = grades.find((g) => g.id === story.gradeId);
-      const gradeName = storyGrade ? storyGrade.name.toLowerCase() : "";
-
-      const storyMod = modules.find((m) => m.id === story.moduleId);
-      const moduleName = storyMod ? storyMod.name.toLowerCase() : "";
-
-      const matchesTitle = storyTitle.includes(query);
-      const matchesKeywords = storyKeywords.some((k) => k.includes(query));
-      const matchesGrade = gradeName.includes(query);
-      const matchesModule = moduleName.includes(query);
-
-      return matchesTitle || matchesKeywords || matchesGrade || matchesModule;
-    }
-
     return true;
   });
+
+  // Cross-grade matches count if a specific grade is selected
+  const crossGradeMatchesCount =
+    selectedGradeId !== "all" && hasSearch
+      ? matchingAllGrades.length - filteredStories.length
+      : 0;
 
   // Pagination Math
   const totalFilteredCount = filteredStories.length;
@@ -303,7 +317,7 @@ export default function App() {
         {/* Search Bar & Grade Filter Block */}
         <div className="glass-card rounded-3xl p-6 sm:p-8 shadow-sm mb-8 animate-fadeIn border border-natural-border">
           <div className="relative">
-            <Search className="absolute left-4 top-4 text-natural-sand w-5 h-5" />
+            <Search className="absolute left-4 top-4 text-natural-sand w-5 h-5 pointer-events-none" />
             <input
               type="text"
               placeholder="Search by keywords, title, or student author..."
@@ -312,8 +326,22 @@ export default function App() {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1); // reset to page 1 on search
               }}
-              className="w-full pl-12 pr-4 py-3.5 bg-white/90 border border-natural-border rounded-xl text-[#322f82] placeholder-natural-sand font-sans focus:outline-none focus:ring-2 focus:ring-[#322f82] text-base transition-all shadow-xs"
+              className="w-full pl-12 pr-11 py-3.5 bg-white/90 border border-natural-border rounded-xl text-[#322f82] placeholder-natural-sand font-sans focus:outline-none focus:ring-2 focus:ring-[#322f82] text-base transition-all shadow-xs"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setCurrentPage(1);
+                }}
+                className="absolute right-3.5 top-3.5 p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {/* Grade Navigation buttons below search bar */}
@@ -356,11 +384,36 @@ export default function App() {
           </div>
         </div>
 
+        {/* Cross-grade notification banner if stories exist in other grades */}
+        {hasSearch && crossGradeMatchesCount > 0 && paginatedStories.length > 0 && (
+          <div className="bg-indigo-50/90 border border-indigo-200/80 rounded-2xl px-5 py-3.5 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-indigo-950 animate-fadeIn shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>
+                Showing <strong>{totalFilteredCount}</strong> in {grades.find((g) => g.id === selectedGradeId)?.name || "this grade"}, plus <strong>{crossGradeMatchesCount} more matching {crossGradeMatchesCount === 1 ? 'story' : 'stories'}</strong> in other grades.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setSelectedGradeId("all");
+                setCurrentPage(1);
+              }}
+              className="px-3.5 py-1.5 bg-[#322f82] hover:bg-[#252267] text-white font-bold rounded-lg transition-colors cursor-pointer shrink-0 text-xs shadow-xs"
+            >
+              View in All Grades ({matchingAllGrades.length})
+            </button>
+          </div>
+        )}
+
         {/* Stories Listing Header */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold font-serif text-natural-heading">
             {selectedGradeId === "all" ? "All Stories" : `${grades.find((g) => g.id === selectedGradeId)?.name} Stories`}
-            {searchQuery && <span className="text-sm font-sans font-medium text-natural-sand ml-2">({totalFilteredCount} matching results)</span>}
+            {searchQuery && (
+              <span className="text-sm font-sans font-medium text-natural-sand ml-2">
+                ({totalFilteredCount} matching {totalFilteredCount === 1 ? "result" : "results"})
+              </span>
+            )}
           </h2>
           <span className="text-xs font-sans font-medium text-natural-sand">
             Page {currentPage} of {totalPages}
@@ -382,17 +435,49 @@ export default function App() {
                   New stories written by our students will appear here as soon as they are added and published by the administration.
                 </p>
               </div>
+            ) : crossGradeMatchesCount > 0 ? (
+              <div className="py-6">
+                <Sparkles className="w-12 h-12 text-indigo-500 mx-auto mb-3" />
+                <h3 className="text-lg font-bold font-serif text-natural-heading">
+                  Found Stories in Other Grades!
+                </h3>
+                <p className="text-natural-muted text-sm max-w-md mx-auto mt-2 font-sans">
+                  No stories match <span className="font-semibold text-slate-800">"{searchQuery}"</span> in {grades.find((g) => g.id === selectedGradeId)?.name || "this grade"}, but we found <span className="font-bold text-[#322f82]">{crossGradeMatchesCount} matching {crossGradeMatchesCount === 1 ? 'story' : 'stories'}</span> in other grade levels.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-5">
+                  <button
+                    onClick={() => {
+                      setSelectedGradeId("all");
+                      setCurrentPage(1);
+                    }}
+                    className="px-5 py-2.5 bg-[#322f82] hover:bg-[#252267] text-white font-sans font-bold text-xs rounded-xl cursor-pointer transition-all shadow-xs flex items-center gap-1.5"
+                  >
+                    <span>View in All Grades ({matchingAllGrades.length})</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      setCurrentPage(1);
+                    }}
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-sans font-bold text-xs rounded-xl cursor-pointer transition-all"
+                  >
+                    Clear Search
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="py-6">
                 <FilterX className="w-12 h-12 text-natural-sand mx-auto mb-3" />
                 <h3 className="text-lg font-bold font-serif text-natural-heading">No Stories Match Your Search</h3>
                 <p className="text-natural-muted text-sm max-w-md mx-auto mt-2 font-sans">
-                  Try searching for another keyword or select a different class filter.
+                  Try searching for another keyword, title, author name, or clear the filter.
                 </p>
                 <button
                   onClick={() => {
                     setSearchQuery("");
                     setSelectedGradeId("all");
+                    setCurrentPage(1);
                   }}
                   className="mt-5 px-5 py-2.5 bg-[#322f82] hover:bg-[#252267] text-white font-sans font-bold text-xs rounded-xl cursor-pointer transition-all shadow-xs"
                 >

@@ -9,6 +9,9 @@ const KEYS = {
   ABOUT: "yespaistory_about",
   CONTACT: "yespaistory_contact",
   NOTIFICATIONS: "yespaistory_notifications",
+  USER_READ_NOTIFICATIONS: "yespaistory_user_read_notifications",
+  USER_DISMISSED_NOTIFICATIONS: "yespaistory_user_dismissed_notifications",
+  USER_CLEARED_NOTIFICATIONS_AT: "yespaistory_user_cleared_notifications_at",
   FEEDBACK: "yespaistory_feedback_inbox",
   ADMIN_PASSWORD: "yespaistory_admin_password",
   SHINING_STARS: "yespaistory_shining_stars",
@@ -128,8 +131,55 @@ export const getContactContent = (): ContactUsContent => {
   return current;
 };
 
+// User-Specific Independent Notification Helpers
+export const getUserReadNotificationIds = (): string[] => {
+  return getLocalStorage<string[]>(KEYS.USER_READ_NOTIFICATIONS, []);
+};
+
+export const getUserDismissedNotificationIds = (): string[] => {
+  return getLocalStorage<string[]>(KEYS.USER_DISMISSED_NOTIFICATIONS, []);
+};
+
+export const getUserClearedNotificationsAt = (): number => {
+  return getLocalStorage<number>(KEYS.USER_CLEARED_NOTIFICATIONS_AT, 0);
+};
+
+// Raw broadcast notification feed (global shared announcements)
+export const getRawNotifications = (): AppNotification[] => {
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+  const lowerDeletedSet = new Set(deletedIds.map((d) => String(d || "").toLowerCase().trim()));
+  const stored = getLocalStorage<AppNotification[]>(KEYS.NOTIFICATIONS, []);
+
+  // Filter out notifications referencing deleted stories
+  return stored.filter((n) => {
+    if (!n || !n.id) return false;
+    const sId = String(n.storyId || "").toLowerCase().trim();
+    const sSlug = String(n.storySlug || "").toLowerCase().trim();
+    if (sId && (lowerDeletedSet.has(sId) || deletedIds.includes(n.storyId || ""))) return false;
+    if (sSlug && (lowerDeletedSet.has(sSlug) || deletedIds.includes(n.storySlug || ""))) return false;
+    return true;
+  });
+};
+
+// Returns notifications tailored strictly to the current user with their own independent read/dismissed state
 export const getNotifications = (): AppNotification[] => {
-  return getLocalStorage<AppNotification[]>(KEYS.NOTIFICATIONS, []);
+  const raw = getRawNotifications();
+  const readIds = new Set(getUserReadNotificationIds());
+  const dismissedIds = new Set(getUserDismissedNotificationIds());
+  const clearedAt = getUserClearedNotificationsAt();
+
+  return raw
+    .filter((n) => {
+      if (!n || !n.id) return false;
+      if (dismissedIds.has(n.id)) return false;
+      if (clearedAt && new Date(n.createdAt).getTime() <= clearedAt) return false;
+      return true;
+    })
+    .map((n) => ({
+      ...n,
+      // Read status is private to THIS user only
+      isRead: readIds.has(n.id),
+    }));
 };
 
 // Writers
@@ -159,10 +209,10 @@ export const saveNotifications = (notifications: AppNotification[]): void => {
 
 // Notification Helpers
 export const addNotification = (title: string, message: string, storyId?: string, storySlug?: string): AppNotification => {
-  const notifications = getNotifications();
+  const rawFeed = getRawNotifications();
   // Check if a notification already exists for this story (prevent duplicates)
   if (storyId || storySlug) {
-    const existing = notifications.find(
+    const existing = rawFeed.find(
       (n) => (storyId && n.storyId === storyId) || (storySlug && n.storySlug === storySlug)
     );
     if (existing) {
@@ -179,12 +229,12 @@ export const addNotification = (title: string, message: string, storyId?: string
     createdAt: new Date().toISOString(),
     isRead: false,
   };
-  notifications.unshift(newNotif);
+  rawFeed.unshift(newNotif);
   // Keep last 50 notifications to optimize storage
-  if (notifications.length > 50) {
-    notifications.pop();
+  if (rawFeed.length > 50) {
+    rawFeed.pop();
   }
-  saveNotifications(notifications);
+  saveNotifications(rawFeed);
 
   // Sync to server API
   fetch("/api/notifications", {
@@ -196,7 +246,8 @@ export const addNotification = (title: string, message: string, storyId?: string
   return newNotif;
 };
 
-// Server API sync for notifications
+// Server API sync for notifications:
+// Fetches the global broadcast feed from server, updates local feed, and returns THIS user's personalized notifications
 export const fetchNotificationsAsync = async (): Promise<AppNotification[]> => {
   try {
     const res = await fetch("/api/notifications");
@@ -204,7 +255,6 @@ export const fetchNotificationsAsync = async (): Promise<AppNotification[]> => {
       const data = await res.json();
       if (data.notifications && Array.isArray(data.notifications)) {
         setLocalStorage(KEYS.NOTIFICATIONS, data.notifications);
-        return data.notifications;
       }
     }
   } catch (err) {
@@ -213,26 +263,54 @@ export const fetchNotificationsAsync = async (): Promise<AppNotification[]> => {
   return getNotifications();
 };
 
+// Marks a notification as read ONLY for this particular user
 export const markNotificationReadAsync = async (id: string): Promise<void> => {
-  const notifications = getNotifications();
-  const updated = notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n));
-  saveNotifications(updated);
+  if (!id) return;
+  const readIds = getUserReadNotificationIds();
+  if (!readIds.includes(id)) {
+    readIds.push(id);
+    setLocalStorage(KEYS.USER_READ_NOTIFICATIONS, readIds);
+  }
+  try {
+    window.dispatchEvent(new Event("yespaistory_user_notifications_changed"));
+  } catch {}
   try {
     await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
   } catch {}
 };
 
+// Marks all notifications as read ONLY for this particular user
 export const markAllNotificationsReadAsync = async (): Promise<void> => {
-  const notifications = getNotifications();
-  const updated = notifications.map((n) => ({ ...n, isRead: true }));
-  saveNotifications(updated);
+  const current = getNotifications();
+  const readIds = new Set(getUserReadNotificationIds());
+  for (const n of current) {
+    if (n && n.id) {
+      readIds.add(n.id);
+    }
+  }
+  setLocalStorage(KEYS.USER_READ_NOTIFICATIONS, Array.from(readIds));
+  try {
+    window.dispatchEvent(new Event("yespaistory_user_notifications_changed"));
+  } catch {}
   try {
     await fetch("/api/notifications/mark-all-read", { method: "POST" });
   } catch {}
 };
 
+// Clears notifications ONLY for this particular user without affecting other users
 export const clearAllNotificationsAsync = async (): Promise<void> => {
-  saveNotifications([]);
+  const current = getNotifications();
+  const dismissedIds = new Set(getUserDismissedNotificationIds());
+  for (const n of current) {
+    if (n && n.id) {
+      dismissedIds.add(n.id);
+    }
+  }
+  setLocalStorage(KEYS.USER_DISMISSED_NOTIFICATIONS, Array.from(dismissedIds));
+  setLocalStorage(KEYS.USER_CLEARED_NOTIFICATIONS_AT, Date.now());
+  try {
+    window.dispatchEvent(new Event("yespaistory_user_notifications_changed"));
+  } catch {}
   try {
     await fetch("/api/notifications", { method: "DELETE" });
   } catch {}
@@ -429,16 +507,9 @@ export const deleteStory = async (
   const filtered = current.filter((s) => !isStoryDeleted(s, updatedDeletedList));
   saveStories(filtered);
 
-  // 3. Remove associated notifications
-  const notifs = getNotifications();
-  const cleanNotifs = notifs.filter(
-    (n) =>
-      (!n.storyId || !updatedDeletedList.includes(n.storyId)) &&
-      (!n.storySlug || !updatedDeletedList.includes(n.storySlug))
-  );
-  if (cleanNotifs.length !== notifs.length) {
-    saveNotifications(cleanNotifs);
-  }
+  // 3. Remove associated notifications from raw feed
+  const notifs = getRawNotifications();
+  saveNotifications(notifs);
 
   // Cross-tab/window notification
   try {
@@ -504,16 +575,9 @@ export const deleteStoriesBatch = async (ids: string[]): Promise<void> => {
   const filtered = current.filter((s) => !isStoryDeleted(s, updatedDeletedList));
   saveStories(filtered);
 
-  // Remove notifications
-  const notifs = getNotifications();
-  const cleanNotifs = notifs.filter(
-    (n) =>
-      (!n.storyId || !updatedDeletedList.includes(n.storyId)) &&
-      (!n.storySlug || !updatedDeletedList.includes(n.storySlug))
-  );
-  if (cleanNotifs.length !== notifs.length) {
-    saveNotifications(cleanNotifs);
-  }
+  // Remove notifications from raw feed
+  const notifs = getRawNotifications();
+  saveNotifications(notifs);
 
   // Cross-tab/window notification
   try {
