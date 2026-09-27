@@ -21,13 +21,14 @@ export const isStoryDeleted = (
   deletedIds: string[]
 ): boolean => {
   if (!story || !Array.isArray(deletedIds) || deletedIds.length === 0) return false;
-  const id = String(story.id || "").trim();
-  const slug = String(story.slug || "").trim();
+  const lowerSet = new Set(deletedIds.map((d) => String(d || "").toLowerCase().trim()));
+  const id = String(story.id || "").toLowerCase().trim();
+  const slug = String(story.slug || "").toLowerCase().trim();
   const title = String(story.title || "").toLowerCase().trim();
 
-  if (id && deletedIds.includes(id)) return true;
-  if (slug && (deletedIds.includes(slug) || deletedIds.includes(slug.toLowerCase()))) return true;
-  if (title && deletedIds.includes(title)) return true;
+  if (id && (lowerSet.has(id) || deletedIds.includes(story.id || ""))) return true;
+  if (slug && (lowerSet.has(slug) || deletedIds.includes(story.slug || ""))) return true;
+  if (title && (lowerSet.has(title) || deletedIds.includes(story.title || ""))) return true;
   return false;
 };
 
@@ -101,14 +102,8 @@ export const getStories = (): Story[] => {
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
   const stored = getLocalStorage<Story[]>(KEYS.STORIES, DEFAULT_STORIES);
 
-  // Merge any bundled stories from data/stories.json not yet in local storage and not explicitly deleted
-  const storedIds = new Set(stored.map((s) => s.id));
-  const missingBundled = DEFAULT_STORIES.filter(
-    (b) => !storedIds.has(b.id) && !isStoryDeleted(b, deletedIds)
-  );
-
-  const combined = missingBundled.length > 0 ? [...stored, ...missingBundled] : stored;
-  const filtered = combined.filter((s) => s && s.title && s.content && !isStoryDeleted(s, deletedIds));
+  // Filter against any deleted IDs
+  const filtered = stored.filter((s) => s && s.title && s.content && !isStoryDeleted(s, deletedIds));
   if (filtered.length !== stored.length) {
     setLocalStorage(KEYS.STORIES, filtered);
   }
@@ -243,7 +238,7 @@ export const clearAllNotificationsAsync = async (): Promise<void> => {
   } catch {}
 };
 
-// Server API sync for stories with resilient bidirectional reconciliation
+// Server API sync for stories - server is authoritative source of truth
 export const fetchStoriesAsync = async (): Promise<Story[]> => {
   const localStories = getStories();
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
@@ -262,39 +257,20 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
         }
         const effectiveDeleted = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
 
+        // Server is authoritative source of truth for active stories.
+        // Stale client stories that do not exist on server or are marked deleted must never be resurrected.
         const serverStories: Story[] = data.stories.filter(
           (s: Story) => s && s.title && s.content && !isStoryDeleted(s, effectiveDeleted)
         );
 
-        // Merge server stories with local stories so newly created stories never disappear on refresh
-        const serverIds = new Set(serverStories.map((s) => s.id));
-        const serverSlugs = new Set(serverStories.map((s) => s.slug).filter(Boolean));
-        const unsyncedLocal = localStories.filter(
-          (local) =>
-            !isStoryDeleted(local, effectiveDeleted) &&
-            !serverIds.has(local.id) &&
-            (!local.slug || !serverSlugs.has(local.slug))
-        );
-
-        const unifiedStories = [...serverStories, ...unsyncedLocal];
-        setLocalStorage(KEYS.STORIES, unifiedStories);
-
-        // Sync local stories to server in the background if server doesn't have them yet
-        if (unsyncedLocal.length > 0) {
-          fetch("/api/stories/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ clientStories: unsyncedLocal }),
-          }).catch(() => {});
-        }
-
-        return unifiedStories;
+        setLocalStorage(KEYS.STORIES, serverStories);
+        return serverStories;
       }
     }
   } catch (err) {
     // Offline or static preview fallback
   }
-  return localStories;
+  return localStories.filter((s) => !isStoryDeleted(s, deletedIds));
 };
 
 // Story Helpers (Client resilient & server synced)
@@ -464,6 +440,11 @@ export const deleteStory = async (
     saveNotifications(cleanNotifs);
   }
 
+  // Cross-tab/window notification
+  try {
+    window.dispatchEvent(new Event("storage"));
+  } catch {}
+
   // 4. Send deletion to server API
   try {
     const query = new URLSearchParams();
@@ -471,11 +452,19 @@ export const deleteStory = async (
     if (storyTitle) query.set("title", storyTitle);
     const queryString = query.toString() ? `?${query.toString()}` : "";
 
-    const res = await fetch(`/api/stories/${encodeURIComponent(id)}${queryString}`, {
+    let res = await fetch(`/api/stories/${encodeURIComponent(id)}${queryString}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, slug: storySlug, title: storyTitle }),
     });
+
+    if (!res.ok) {
+      res = await fetch(`/api/stories/${encodeURIComponent(id)}/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, slug: storySlug, title: storyTitle }),
+      });
+    }
 
     if (res.ok) {
       const data = await res.json();
@@ -526,6 +515,11 @@ export const deleteStoriesBatch = async (ids: string[]): Promise<void> => {
     saveNotifications(cleanNotifs);
   }
 
+  // Cross-tab/window notification
+  try {
+    window.dispatchEvent(new Event("storage"));
+  } catch {}
+
   try {
     const res = await fetch("/api/stories/batch-delete", {
       method: "POST",
@@ -565,7 +559,8 @@ export const purgeLegacyStories = async (): Promise<{ purgedCount: number }> => 
     "story-1", "story-2", "story-3", "story-4", "story-5",
     "story-6", "story-7", "story-8", "story-9", "story-10",
     "story-1790102899999", "story-1790102765374", "story-1790013162299",
-    "story-1790012348307", "story-1790003819476", "story-1789285838253"
+    "story-1790012348307", "story-1790003819476", "story-1789285838253",
+    "story-1790329819860"
   ];
 
   const matched = current.filter((s) => {
@@ -872,7 +867,7 @@ export const saveShiningStars = (stars: ShiningStar[]): void => {
   setLocalStorage(KEYS.SHINING_STARS, stars);
 };
 
-// Server API sync for Shining Stars with resilient bidirectional reconciliation
+// Server API sync for Shining Stars - server is authoritative
 export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
   const localStars = getShiningStars();
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
@@ -894,21 +889,8 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
           (s: ShiningStar) => s && s.studentName && s.className && s.division && !effectiveDeleted.includes(s.id)
         );
 
-        const serverIds = new Set(serverStars.map((s) => s.id));
-        const unsyncedLocal = localStars.filter((local) => !serverIds.has(local.id) && !effectiveDeleted.includes(local.id));
-
-        const unifiedStars = [...serverStars, ...unsyncedLocal];
-        setLocalStorage(KEYS.SHINING_STARS, unifiedStars);
-
-        if (unsyncedLocal.length > 0) {
-          fetch("/api/shining-stars/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ clientStars: unsyncedLocal }),
-          }).catch(() => {});
-        }
-
-        return unifiedStars;
+        setLocalStorage(KEYS.SHINING_STARS, serverStars);
+        return serverStars;
       }
     }
   } catch (err) {
@@ -992,9 +974,18 @@ export const deleteShiningStar = async (id: string): Promise<void> => {
   saveShiningStars(filtered);
 
   try {
-    await fetch(`/api/shining-stars/${id}`, {
+    window.dispatchEvent(new Event("storage"));
+  } catch {}
+
+  try {
+    let res = await fetch(`/api/shining-stars/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+    if (!res.ok) {
+      await fetch(`/api/shining-stars/${encodeURIComponent(id)}/delete`, {
+        method: "POST",
+      });
+    }
   } catch (err) {
     console.warn("Failed to sync shining star deletion to server API:", err);
   }

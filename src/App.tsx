@@ -45,25 +45,29 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isAdminLogged, setIsAdminLogged] = useState(false);
 
-  // Synchronize on mount and monitor URL hash changes
+  // Synchronize on mount and monitor URL hash changes, cross-tab storage, and real-time updates
   useEffect(() => {
+    const handleSync = () => {
+      refreshAppDatabase();
+      fetchStoriesAsync().then((fresh) => {
+        if (Array.isArray(fresh)) {
+          setStories(fresh);
+        }
+      });
+      fetchNotificationsAsync().then((freshNotifs) => {
+        if (Array.isArray(freshNotifs)) {
+          setNotifications(freshNotifs);
+        }
+      });
+      fetchShiningStarsAsync().then((freshStars) => {
+        if (Array.isArray(freshStars)) {
+          setShiningStars(freshStars);
+        }
+      });
+    };
+
     // Initial fetch from storage & sync from server API
-    refreshAppDatabase();
-    fetchStoriesAsync().then((fresh) => {
-      if (fresh) {
-        setStories(fresh);
-      }
-    });
-    fetchNotificationsAsync().then((freshNotifs) => {
-      if (freshNotifs) {
-        setNotifications(freshNotifs);
-      }
-    });
-    fetchShiningStarsAsync().then((freshStars) => {
-      if (freshStars) {
-        setShiningStars(freshStars);
-      }
-    });
+    handleSync();
 
     // Check auth session
     const isLogged =
@@ -76,28 +80,37 @@ export default function App() {
       setCurrentRoute(newHash);
       // Reset page when returning or navigating to prevent blank pages
       setCurrentPage(1);
-      // Ensure we fetch freshest data if admin edits have occurred
-      refreshAppDatabase();
-      fetchStoriesAsync().then((fresh) => {
-        if (fresh) {
-          setStories(fresh);
-        }
-      });
-      fetchNotificationsAsync().then((freshNotifs) => {
-        if (freshNotifs) {
-          setNotifications(freshNotifs);
-        }
-      });
-      fetchShiningStarsAsync().then((freshStars) => {
-        if (freshStars) {
-          setShiningStars(freshStars);
-        }
-      });
+      handleSync();
     };
 
+    // 1. Cross-tab/window storage listener (e.g. admin deletes story in Tab 1, Tab 2 updates instantly)
+    const handleStorageChange = () => {
+      handleSync();
+    };
+
+    // 2. Tab focus / visibility change sync
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        handleSync();
+      }
+    };
+
+    // 3. Lightweight background poll so random users without focus/refresh automatically sync
+    const pollInterval = setInterval(() => {
+      handleSync();
+    }, 8000);
+
     window.addEventListener("hashchange", handleHashChange);
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("focus", handleSync);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       window.removeEventListener("hashchange", handleHashChange);
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("focus", handleSync);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(pollInterval);
     };
   }, []);
 
