@@ -18,21 +18,14 @@ const KEYS = {
   DELETED_STARS: "yespaistory_deleted_star_ids",
 };
 
-// Check if a story has been deleted across ID, slug, or title
+// Check if a story has been deleted across exact ID
 export const isStoryDeleted = (
   story: { id?: string; slug?: string; title?: string } | null | undefined,
   deletedIds: string[]
 ): boolean => {
-  if (!story || !Array.isArray(deletedIds) || deletedIds.length === 0) return false;
-  const lowerSet = new Set(deletedIds.map((d) => String(d || "").toLowerCase().trim()));
-  const id = String(story.id || "").toLowerCase().trim();
-  const slug = String(story.slug || "").toLowerCase().trim();
-  const title = String(story.title || "").toLowerCase().trim();
-
-  if (id && (lowerSet.has(id) || deletedIds.includes(story.id || ""))) return true;
-  if (slug && (lowerSet.has(slug) || deletedIds.includes(story.slug || ""))) return true;
-  if (title && (lowerSet.has(title) || deletedIds.includes(story.title || ""))) return true;
-  return false;
+  if (!story || !story.id || !Array.isArray(deletedIds) || deletedIds.length === 0) return false;
+  const id = String(story.id).toLowerCase().trim();
+  return deletedIds.some((del) => String(del || "").toLowerCase().trim() === id);
 };
 
 // Backwards-compatible dummy check - never rejects user stories
@@ -102,11 +95,36 @@ export const getModules = (): Module[] => {
 };
 
 export const getStories = (): Story[] => {
-  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
   const stored = getLocalStorage<Story[]>(KEYS.STORIES, DEFAULT_STORIES);
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
 
-  // Filter against any deleted IDs
-  const filtered = stored.filter((s) => s && s.title && s.content && !isStoryDeleted(s, deletedIds));
+  // Merge bundled DEFAULT_STORIES (from data/stories.json) if missing from stored
+  const storyMap = new Map<string, Story>();
+  if (Array.isArray(DEFAULT_STORIES)) {
+    for (const s of DEFAULT_STORIES) {
+      if (s && s.id && s.title && s.content) {
+        storyMap.set(s.id, s);
+      }
+    }
+  }
+  if (Array.isArray(stored)) {
+    for (const s of stored) {
+      if (s && s.id && s.title && s.content) {
+        storyMap.set(s.id, s);
+      }
+    }
+  }
+
+  const allStories = Array.from(storyMap.values());
+
+  // Stories currently in data/stories.json (DEFAULT_STORIES) are explicitly kept active and never auto-deleted
+  const filtered = allStories.filter((s) => {
+    if (DEFAULT_STORIES.some((def) => def.id === s.id)) {
+      return true;
+    }
+    return !isStoryDeleted(s, deletedIds);
+  });
+
   if (filtered.length !== stored.length) {
     setLocalStorage(KEYS.STORIES, filtered);
   }
@@ -318,37 +336,26 @@ export const clearAllNotificationsAsync = async (): Promise<void> => {
 
 // Server API sync for stories - server is authoritative source of truth
 export const fetchStoriesAsync = async (): Promise<Story[]> => {
-  const localStories = getStories();
-  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-
   try {
     const res = await fetch("/api/stories");
     if (res.ok) {
       const data = await res.json();
-      if (data && Array.isArray(data.stories)) {
-        // Synchronize server-side deleted IDs into client storage
-        if (Array.isArray(data.deletedIds)) {
-          const mergedDeleted = new Set([...deletedIds, ...data.deletedIds]);
-          if (mergedDeleted.size !== deletedIds.length) {
-            setLocalStorage(KEYS.DELETED_STORIES, Array.from(mergedDeleted));
-          }
+      if (data && Array.isArray(data.stories) && data.stories.length > 0) {
+        setLocalStorage(KEYS.STORIES, data.stories);
+        // Any story present on server is active and must be un-blacklisted on client
+        const activeIds = new Set(data.stories.map((s: Story) => String(s.id).toLowerCase()));
+        const clientDeleted = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
+        const cleaned = clientDeleted.filter((d) => !activeIds.has(String(d).toLowerCase()));
+        if (cleaned.length !== clientDeleted.length) {
+          setLocalStorage(KEYS.DELETED_STORIES, cleaned);
         }
-        const effectiveDeleted = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
-
-        // Server is authoritative source of truth for active stories.
-        // Stale client stories that do not exist on server or are marked deleted must never be resurrected.
-        const serverStories: Story[] = data.stories.filter(
-          (s: Story) => s && s.title && s.content && !isStoryDeleted(s, effectiveDeleted)
-        );
-
-        setLocalStorage(KEYS.STORIES, serverStories);
-        return serverStories;
+        return data.stories;
       }
     }
   } catch (err) {
     // Offline or static preview fallback
   }
-  return localStories.filter((s) => !isStoryDeleted(s, deletedIds));
+  return getStories();
 };
 
 // Story Helpers (Client resilient & server synced)

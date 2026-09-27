@@ -288,20 +288,7 @@ async function startServer() {
   function loadPersistentDeletedStoryIds(): string[] {
     if (deletedStoriesCache !== null) return deletedStoriesCache;
     const stored = safeReadJsonFile<string[]>(DELETED_STORIES_FILE, []);
-    let ids = Array.isArray(stored) ? stored : [];
-    // Ensure file exists with seeded defaults if empty
-    if (ids.length === 0) {
-      ids = [
-        "story-1", "story-2", "story-3", "story-4", "story-5",
-        "story-6", "story-7", "story-8", "story-9", "story-10",
-        "story-1790102899999", "story-1790102765374", "story-1790013162299",
-        "story-1790012348307", "story-1790003819476", "story-1789285838253",
-        "story-1790329819860", "the-whispering-banyan", "the whispering banyan",
-        "whispering-banyan", "whispering banyan", "belief-in-yourself",
-        "the-courageous-dolphin", "the-courageous-dolphin-of-chilika-lake"
-      ];
-      safeWriteJsonFile(DELETED_STORIES_FILE, ids);
-    }
+    const ids = Array.isArray(stored) ? stored : [];
     deletedStoriesCache = ids;
     return deletedStoriesCache;
   }
@@ -317,11 +304,6 @@ async function startServer() {
         set.add(cleanId);
         changed = true;
       }
-      const lower = cleanId.toLowerCase();
-      if (lower && !set.has(lower)) {
-        set.add(lower);
-        changed = true;
-      }
     }
     if (changed) {
       deletedStoriesCache = Array.from(set);
@@ -330,16 +312,9 @@ async function startServer() {
   }
 
   function isStoryDeletedOnServer(story: any, deletedIds: string[]): boolean {
-    if (!story) return true;
-    const id = String(story.id || "").trim();
-    const slug = String(story.slug || "").trim();
-    const title = String(story.title || "").toLowerCase().trim();
-
-    const lowerSet = new Set(deletedIds.map((d) => String(d || "").toLowerCase().trim()));
-    if (id && (lowerSet.has(id.toLowerCase()) || deletedIds.includes(id))) return true;
-    if (slug && (lowerSet.has(slug.toLowerCase()) || deletedIds.includes(slug))) return true;
-    if (title && (lowerSet.has(title) || deletedIds.includes(title))) return true;
-    return false;
+    if (!story || !story.id || !Array.isArray(deletedIds) || deletedIds.length === 0) return false;
+    const id = String(story.id).toLowerCase().trim();
+    return deletedIds.some((del) => String(del).toLowerCase().trim() === id);
   }
 
   // Known legacy default sample story identifiers to easily purge on demand
@@ -413,6 +388,17 @@ async function startServer() {
     if (Array.isArray(stored)) {
       const validStories = stored.filter(isValidStory);
       storiesCache = validStories;
+
+      // Stories present in stories.json are explicitly active.
+      // Remove any of their IDs from deleted-story-ids.json so they are never auto-deleted or hidden.
+      const activeIds = new Set(validStories.map((s) => String(s.id).toLowerCase()));
+      const currentDeleted = loadPersistentDeletedStoryIds();
+      const reconciled = currentDeleted.filter((del) => !activeIds.has(String(del).toLowerCase()));
+      if (reconciled.length !== currentDeleted.length) {
+        deletedStoriesCache = reconciled;
+        safeWriteJsonFile(DELETED_STORIES_FILE, reconciled);
+      }
+
       return validStories;
     }
 
@@ -476,13 +462,12 @@ async function startServer() {
 
   // GET /api/stories - List all active stories and deleted IDs for client sync
   app.get("/api/stories", (req, res) => {
+    // stories.json is the authoritative list of active stories
     const stories = loadPersistentStories();
-    const deletedIds = loadPersistentDeletedStoryIds();
-    const cleanStories = stories.filter((s) => !isStoryDeletedOnServer(s, deletedIds));
-    res.json({ success: true, stories: cleanStories, deletedIds });
+    res.json({ success: true, stories, deletedIds: loadPersistentDeletedStoryIds() });
   });
 
-  // POST /api/stories/sync - Reconcile local client stories with server storage (guarded against deleted stories)
+  // POST /api/stories/sync - Reconcile local client stories with server storage
   app.post("/api/stories/sync", (req, res) => {
     const { clientStories } = req.body || {};
     const stories = loadPersistentStories();
@@ -492,7 +477,6 @@ async function startServer() {
       let updated = false;
       for (const clientStory of clientStories) {
         if (!clientStory || !isValidStory(clientStory)) continue;
-        // Strict guard: NEVER resurrect a deleted story
         if (isStoryDeletedOnServer(clientStory, deletedIds)) {
           continue;
         }
@@ -510,8 +494,7 @@ async function startServer() {
       }
     }
 
-    const cleanStories = stories.filter((s) => !isStoryDeletedOnServer(s, deletedIds));
-    res.json({ success: true, stories: cleanStories, deletedIds });
+    res.json({ success: true, stories, deletedIds });
   });
 
   // POST /api/stories - Add a story
@@ -650,15 +633,6 @@ async function startServer() {
     for (const match of deletedMatches) {
       if (match.id) {
         idsToBlacklist.push(match.id);
-        idsToBlacklist.push(String(match.id).toLowerCase());
-      }
-      if (match.slug) {
-        idsToBlacklist.push(match.slug);
-        idsToBlacklist.push(String(match.slug).toLowerCase());
-      }
-      if (match.title) {
-        idsToBlacklist.push(match.title);
-        idsToBlacklist.push(String(match.title).toLowerCase().trim());
       }
     }
 
@@ -691,32 +665,24 @@ async function startServer() {
 
   // POST /api/stories/batch-delete - Delete multiple stories simultaneously
   app.post("/api/stories/batch-delete", (req, res) => {
-    const { ids, slugs, titles } = req.body || {};
+    const { ids } = req.body || {};
     const inputIds = Array.isArray(ids) ? ids.map((x: any) => String(x).trim()).filter(Boolean) : [];
-    const inputSlugs = Array.isArray(slugs) ? slugs.map((x: any) => String(x).trim()).filter(Boolean) : [];
-    const inputTitles = Array.isArray(titles) ? titles.map((x: any) => String(x).toLowerCase().trim()).filter(Boolean) : [];
 
     let stories = loadPersistentStories();
     const deletedMatches: any[] = [];
     const remainingStories: any[] = [];
 
     for (const s of stories) {
-      const idMatch = inputIds.includes(s.id) || (s.slug && inputIds.includes(s.slug));
-      const slugMatch = s.slug && inputSlugs.includes(s.slug);
-      const titleMatch = s.title && inputTitles.includes(s.title.toLowerCase());
-
-      if (idMatch || slugMatch || titleMatch) {
+      if (inputIds.includes(s.id)) {
         deletedMatches.push(s);
       } else {
         remainingStories.push(s);
       }
     }
 
-    const idsToBlacklist: string[] = [...inputIds, ...inputSlugs, ...inputTitles];
+    const idsToBlacklist: string[] = [];
     for (const match of deletedMatches) {
       if (match.id) idsToBlacklist.push(match.id);
-      if (match.slug) idsToBlacklist.push(match.slug);
-      if (match.title) idsToBlacklist.push(match.title.toLowerCase());
     }
 
     addPersistentDeletedStoryIds(idsToBlacklist);
@@ -725,7 +691,7 @@ async function startServer() {
     // Clean notifications
     const notifications = loadPersistentNotifications();
     const remainingNotifs = notifications.filter((n) => {
-      return !idsToBlacklist.some((delId) => n.storyId === delId || n.storySlug === delId);
+      return !idsToBlacklist.some((delId) => n.storyId === delId);
     });
     if (remainingNotifs.length !== notifications.length) {
       savePersistentNotifications(remainingNotifs);
@@ -739,37 +705,13 @@ async function startServer() {
     });
   });
 
-  // POST /api/stories/purge-legacy - Remove all legacy demo/sample stories and blacklist them
+  // POST /api/stories/purge-legacy - Safe endpoint (no auto-deletion)
   app.post("/api/stories/purge-legacy", (req, res) => {
-    let stories = loadPersistentStories();
-    const deletedMatches = stories.filter(isLegacySampleStory);
-    const remainingStories = stories.filter((s) => !isLegacySampleStory(s));
-
-    const idsToBlacklist: string[] = [...LEGACY_SAMPLE_IDS, ...LEGACY_SAMPLE_SLUGS];
-    for (const match of deletedMatches) {
-      if (match.id) idsToBlacklist.push(match.id);
-      if (match.slug) idsToBlacklist.push(match.slug);
-      if (match.title) idsToBlacklist.push(match.title.toLowerCase());
-    }
-
-    addPersistentDeletedStoryIds(idsToBlacklist);
-    savePersistentStories(remainingStories);
-
-    // Clean notifications
-    const notifications = loadPersistentNotifications();
-    const remainingNotifs = notifications.filter((n) => {
-      return !idsToBlacklist.some((delId) => n.storyId === delId || n.storySlug === delId);
-    });
-    if (remainingNotifs.length !== notifications.length) {
-      savePersistentNotifications(remainingNotifs);
-    }
-
     res.json({
       success: true,
-      message: `Cleaned ${deletedMatches.length} legacy sample stories.`,
-      purgedCount: deletedMatches.length,
-      deletedIds: idsToBlacklist,
-      remainingCount: remainingStories.length,
+      message: "Legacy purging is disabled. Stories in stories.json are preserved.",
+      purgedCount: 0,
+      deletedIds: [],
     });
   });
 
