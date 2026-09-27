@@ -390,10 +390,15 @@ async function startServer() {
       storiesCache = validStories;
 
       // Stories present in stories.json are explicitly active.
-      // Remove any of their IDs from deleted-story-ids.json so they are never auto-deleted or hidden.
+      // Remove any of their IDs, slugs, or titles from deleted-story-ids.json so they are never auto-deleted or hidden.
       const activeIds = new Set(validStories.map((s) => String(s.id).toLowerCase()));
+      const activeSlugs = new Set(validStories.map((s) => String(s.slug || "").toLowerCase()));
+      const activeTitles = new Set(validStories.map((s) => String(s.title || "").toLowerCase()));
       const currentDeleted = loadPersistentDeletedStoryIds();
-      const reconciled = currentDeleted.filter((del) => !activeIds.has(String(del).toLowerCase()));
+      const reconciled = currentDeleted.filter((del) => {
+        const d = String(del).toLowerCase().trim();
+        return !activeIds.has(d) && !activeSlugs.has(d) && !activeTitles.has(d);
+      });
       if (reconciled.length !== currentDeleted.length) {
         deletedStoriesCache = reconciled;
         safeWriteJsonFile(DELETED_STORIES_FILE, reconciled);

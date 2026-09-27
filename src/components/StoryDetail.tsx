@@ -68,9 +68,11 @@ export default function StoryDetail({
           </span>
         </div>
 
-        <p className="text-natural-muted mt-4 text-lg leading-relaxed max-w-3xl italic">
-          "{story.description}"
-        </p>
+        {story.description && story.description.trim().length > 0 && (
+          <p className="text-natural-muted mt-4 text-lg leading-relaxed max-w-3xl italic">
+            "{story.description}"
+          </p>
+        )}
       </header>
 
       {/* Featured Image */}

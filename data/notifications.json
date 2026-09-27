@@ -1,1 +1,65 @@
-[]
+[
+  {
+    "id": "notif-story-1790507366217",
+    "title": "New Story Published! 📚",
+    "message": "\"Best Friends Forever\" by Fatema Ehsan Shaikh is now available in the library!",
+    "storyId": "story-1790507366217",
+    "storySlug": "best-friends-forever",
+    "createdAt": "2026-09-27T11:09:26.217Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1790507332410",
+    "title": "New Story Published! 📚",
+    "message": "\"The Lesson That the Bear Taught\" by Nawaz Tabrez Sayyed is now available in the library!",
+    "storyId": "story-1790507332410",
+    "storySlug": "the-lesson-that-the-bear-taught",
+    "createdAt": "2026-09-27T11:08:52.410Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1790507271875",
+    "title": "New Story Published! 📚",
+    "message": "\"The Reward of Honesty\" by Zainab Md. Safwat Sayyed is now available in the library!",
+    "storyId": "story-1790507271875",
+    "storySlug": "the-reward-of-honesty",
+    "createdAt": "2026-09-27T11:07:51.875Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1790507236219",
+    "title": "New Story Published! 📚",
+    "message": "\"Value of Home\" by Kulsum Aajlan Shaikh is now available in the library!",
+    "storyId": "story-1790507236219",
+    "storySlug": "value-of-home",
+    "createdAt": "2026-09-27T11:07:16.219Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1790507200619",
+    "title": "New Story Published! 📚",
+    "message": "\"Study with Discipline\" by Maryam Md.Salim Sayyed is now available in the library!",
+    "storyId": "story-1790507200619",
+    "storySlug": "study-with-discipline",
+    "createdAt": "2026-09-27T11:06:40.619Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1790507397474",
+    "title": "New Story Published! 📚",
+    "message": "\"The Clever Little Cat\" by Aleena Mazhar Shaikh is now available in the library!",
+    "storyId": "story-1790507397474",
+    "storySlug": "the-clever-little-cat",
+    "createdAt": "2026-09-27T11:09:57.474Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1790507417577",
+    "title": "New Story Published! 📚",
+    "message": "\"My Rainy Day\" by Fariya Fatema is now available in the library!",
+    "storyId": "story-1790507417577",
+    "storySlug": "my-rainy-day",
+    "createdAt": "2026-09-27T11:10:17.577Z",
+    "isRead": false
+  }
+]

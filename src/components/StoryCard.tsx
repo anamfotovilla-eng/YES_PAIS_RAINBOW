@@ -63,18 +63,24 @@ export default function StoryCard({ story, grade, module, onReadMore }: StoryCar
           </div>
           
           <p className="text-sm text-natural-muted leading-relaxed line-clamp-3">
-            {story.description}
+            {story.description || (story.content ? story.content.slice(0, 140).trim() + "..." : "")}
           </p>
         </div>
 
         <div className="pt-3.5 border-t border-natural-border/60 flex items-center justify-between mt-auto">
           {/* Keyword tags */}
-          <div className="flex gap-1 overflow-hidden max-w-[55%]">
-            {story.keywords?.slice(0, 2).map((word) => (
-              <span key={word} className="text-[10px] font-sans font-semibold text-natural-sand truncate">
-                #{word}
-              </span>
-            ))}
+          <div className="flex gap-1.5 overflow-hidden max-w-[58%] flex-wrap">
+            {story.keywords && story.keywords.length > 0 ? (
+              story.keywords
+                .flatMap((k) => String(k || "").split(/[\s,]+/))
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((word) => (
+                  <span key={word} className="text-[10px] font-sans font-semibold text-natural-sand truncate">
+                    #{word.replace(/^[#@]+/, "")}
+                  </span>
+                ))
+            ) : null}
           </div>
 
           <button

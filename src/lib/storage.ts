@@ -98,28 +98,46 @@ export const getStories = (): Story[] => {
   const stored = getLocalStorage<Story[]>(KEYS.STORIES, DEFAULT_STORIES);
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
 
-  // Merge bundled DEFAULT_STORIES (from data/stories.json) if missing from stored
-  const storyMap = new Map<string, Story>();
+  const storyList: Story[] = [];
+  const seenKeys = new Set<string>();
+
+  const getStoryKey = (s: Story): string => {
+    const slug = (s.slug || "").trim().toLowerCase();
+    const title = (s.title || "").trim().toLowerCase();
+    return slug || title || s.id;
+  };
+
+  // Bundled DEFAULT_STORIES (from data/stories.json) are authoritative
   if (Array.isArray(DEFAULT_STORIES)) {
     for (const s of DEFAULT_STORIES) {
       if (s && s.id && s.title && s.content) {
-        storyMap.set(s.id, s);
+        const key = getStoryKey(s);
+        if (!seenKeys.has(key) && !seenKeys.has(s.id)) {
+          seenKeys.add(key);
+          seenKeys.add(s.id);
+          storyList.push(s);
+        }
       }
     }
   }
+
+  // Merge any dynamically created local stories (avoiding duplicates)
   if (Array.isArray(stored)) {
     for (const s of stored) {
       if (s && s.id && s.title && s.content) {
-        storyMap.set(s.id, s);
+        const key = getStoryKey(s);
+        if (!seenKeys.has(key) && !seenKeys.has(s.id)) {
+          seenKeys.add(key);
+          seenKeys.add(s.id);
+          storyList.push(s);
+        }
       }
     }
   }
 
-  const allStories = Array.from(storyMap.values());
-
   // Stories currently in data/stories.json (DEFAULT_STORIES) are explicitly kept active and never auto-deleted
-  const filtered = allStories.filter((s) => {
-    if (DEFAULT_STORIES.some((def) => def.id === s.id)) {
+  const filtered = storyList.filter((s) => {
+    if (DEFAULT_STORIES.some((def) => def.id === s.id || (def.slug && def.slug === s.slug))) {
       return true;
     }
     return !isStoryDeleted(s, deletedIds);
