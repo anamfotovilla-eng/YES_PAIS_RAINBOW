@@ -383,7 +383,18 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
           (s: Story) => s && s.title && s.content
         );
 
-        // Merge: keep all server stories, plus any active local stories not yet on server
+        const isAdmin = typeof window !== "undefined" && (
+          sessionStorage.getItem("yespaistory_admin_logged") === "true" ||
+          localStorage.getItem("yespaistory_admin_logged") === "true"
+        );
+
+        // For regular users, the server is the single source of truth
+        if (!isAdmin) {
+          setLocalStorage(KEYS.STORIES, serverStories);
+          return serverStories;
+        }
+
+        // For authenticated admin, reconcile any offline-created stories
         const storyMap = new Map<string, Story>();
         const storyKey = (s: Story): string => (s.slug || "").trim().toLowerCase() || (s.title || "").trim().toLowerCase() || s.id;
 
@@ -410,7 +421,6 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
         const mergedStories = Array.from(storyMap.values());
         setLocalStorage(KEYS.STORIES, mergedStories);
 
-        // Auto-push any locally created stories to the server if missing from server
         if (unSyncedStories.length > 0) {
           fetch("/api/stories/sync", {
             method: "POST",
@@ -1066,15 +1076,23 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
           (s: ShiningStar) => s && s.studentName && s.className && s.division
         );
 
-        // Merge: keep all server stars, plus any local stars not yet on server and not deleted
-        const starMap = new Map<string, ShiningStar>();
+        const isAdmin = typeof window !== "undefined" && (
+          sessionStorage.getItem("yespaistory_admin_logged") === "true" ||
+          localStorage.getItem("yespaistory_admin_logged") === "true"
+        );
 
-        // 1. Add valid server stars
+        // For regular users, the server is the single source of truth
+        if (!isAdmin) {
+          setLocalStorage(KEYS.SHINING_STARS, serverStars);
+          return serverStars;
+        }
+
+        // For authenticated admin, reconcile any offline-created stars
+        const starMap = new Map<string, ShiningStar>();
         for (const s of serverStars) {
           starMap.set(starKey(s), s);
         }
 
-        // 2. Add local active stars that are missing from server
         const unSyncedStars: ShiningStar[] = [];
         for (const local of localStars) {
           if (!local || !local.studentName || deletedSet.has(String(local.id).toLowerCase().trim()) || deletedSet.has(starKey(local))) {
@@ -1090,7 +1108,6 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
         const mergedStars = Array.from(starMap.values());
         setLocalStorage(KEYS.SHINING_STARS, mergedStars);
 
-        // If client had active stars that server was missing, auto-sync them to server!
         if (unSyncedStars.length > 0) {
           fetch("/api/shining-stars/sync", {
             method: "POST",
