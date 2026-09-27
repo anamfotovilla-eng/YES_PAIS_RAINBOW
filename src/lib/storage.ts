@@ -367,16 +367,20 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
           for (const d of data.deletedIds) {
             deletedSet.add(String(d).toLowerCase().trim());
           }
-          setLocalStorage(KEYS.DELETED_STORIES, Array.from(deletedSet));
         }
 
+        // Un-blacklist any active stories explicitly returned by the server
+        for (const s of data.stories) {
+          if (s) {
+            if (s.id) deletedSet.delete(String(s.id).toLowerCase().trim());
+            if (s.slug) deletedSet.delete(String(s.slug).toLowerCase().trim());
+            if (s.title) deletedSet.delete(String(s.title).toLowerCase().trim());
+          }
+        }
+        setLocalStorage(KEYS.DELETED_STORIES, Array.from(deletedSet));
+
         const serverStories: Story[] = data.stories.filter(
-          (s: Story) =>
-            s &&
-            s.title &&
-            s.content &&
-            !deletedSet.has(String(s.id).toLowerCase().trim()) &&
-            !deletedSet.has(String(s.slug || "").toLowerCase().trim())
+          (s: Story) => s && s.title && s.content
         );
 
         // Merge: keep all server stories, plus any active local stories not yet on server
@@ -999,7 +1003,7 @@ export const getShiningStars = (): ShiningStar[] => {
   if (Array.isArray(DEFAULT_SHINING_STARS)) {
     for (const s of DEFAULT_SHINING_STARS) {
       if (s && s.id && s.studentName && s.className && s.division) {
-        if (!deletedSet.has(String(s.id).toLowerCase().trim())) {
+        if (!deletedSet.has(String(s.id).toLowerCase().trim()) && !deletedSet.has(starKey(s))) {
           starMap.set(starKey(s), s);
         }
       }
@@ -1010,7 +1014,7 @@ export const getShiningStars = (): ShiningStar[] => {
   if (Array.isArray(stored)) {
     for (const s of stored) {
       if (s && s.id && s.studentName && s.className && s.division) {
-        if (!deletedSet.has(String(s.id).toLowerCase().trim())) {
+        if (!deletedSet.has(String(s.id).toLowerCase().trim()) && !deletedSet.has(starKey(s))) {
           starMap.set(starKey(s), s);
         }
       }
@@ -1043,22 +1047,27 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
           for (const d of data.deletedIds) {
             deletedSet.add(String(d).toLowerCase().trim());
           }
-          setLocalStorage(KEYS.DELETED_STARS, Array.from(deletedSet));
         }
 
+        const starKey = (s: ShiningStar) =>
+          `${(s.studentName || "").toLowerCase().trim()}|${(s.className || "").toLowerCase().trim()}|${(s.division || "").toLowerCase().trim()}`;
+
+        // CRITICAL: Un-blacklist any active stars explicitly returned by the server
+        for (const s of data.stars) {
+          if (s) {
+            if (s.id) deletedSet.delete(String(s.id).toLowerCase().trim());
+            deletedSet.delete(starKey(s));
+          }
+        }
+        setLocalStorage(KEYS.DELETED_STARS, Array.from(deletedSet));
+
+        // All valid stars returned by the server are active
         const serverStars: ShiningStar[] = data.stars.filter(
-          (s: ShiningStar) =>
-            s &&
-            s.studentName &&
-            s.className &&
-            s.division &&
-            !deletedSet.has(String(s.id).toLowerCase().trim())
+          (s: ShiningStar) => s && s.studentName && s.className && s.division
         );
 
         // Merge: keep all server stars, plus any local stars not yet on server and not deleted
         const starMap = new Map<string, ShiningStar>();
-        const starKey = (s: ShiningStar) =>
-          `${(s.studentName || "").toLowerCase().trim()}|${(s.className || "").toLowerCase().trim()}|${(s.division || "").toLowerCase().trim()}`;
 
         // 1. Add valid server stars
         for (const s of serverStars) {
@@ -1068,7 +1077,7 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
         // 2. Add local active stars that are missing from server
         const unSyncedStars: ShiningStar[] = [];
         for (const local of localStars) {
-          if (!local || !local.studentName || deletedSet.has(String(local.id).toLowerCase().trim())) {
+          if (!local || !local.studentName || deletedSet.has(String(local.id).toLowerCase().trim()) || deletedSet.has(starKey(local))) {
             continue;
           }
           const k = starKey(local);
@@ -1097,7 +1106,9 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
     // Offline or static fallback
   }
 
-  return localStars.filter((s) => !deletedSet.has(String(s.id).toLowerCase().trim()));
+  const starKey = (s: ShiningStar) =>
+    `${(s.studentName || "").toLowerCase().trim()}|${(s.className || "").toLowerCase().trim()}|${(s.division || "").toLowerCase().trim()}`;
+  return localStars.filter((s) => !deletedSet.has(String(s.id).toLowerCase().trim()) && !deletedSet.has(starKey(s)));
 };
 
 export const addShiningStar = async (star: Omit<ShiningStar, "id" | "createdAt">): Promise<ShiningStar> => {

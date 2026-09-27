@@ -7,45 +7,10 @@
     "createdAt": "2026-09-27T11:09:26.217Z"
   },
   {
-    "id": "star-1790507332410-nt",
-    "studentName": "Nawaz Tabrez Sayyed",
-    "className": "Grade 4",
-    "division": "A",
-    "createdAt": "2026-09-27T11:08:52.410Z"
-  },
-  {
-    "id": "star-1790507200619-ms",
-    "studentName": "Maryam Md.Salim Sayyed",
-    "className": "Grade 5",
-    "division": "A",
-    "createdAt": "2026-09-27T11:06:40.619Z"
-  },
-  {
-    "id": "star-1790507397474-am",
-    "studentName": "Aleena Mazhar Shaikh",
-    "className": "Grade 4",
-    "division": "A",
-    "createdAt": "2026-09-27T11:09:57.474Z"
-  },
-  {
-    "id": "star-1790507271875-zs",
-    "studentName": "Zainab Md. Safwat Sayyed",
-    "className": "Grade 4",
-    "division": "A",
-    "createdAt": "2026-09-27T11:07:51.875Z"
-  },
-  {
     "id": "star-1790507236219-ka",
     "studentName": "Kulsum Aajlan Shaikh",
     "className": "Grade 4",
     "division": "A",
     "createdAt": "2026-09-27T11:07:16.219Z"
-  },
-  {
-    "id": "star-1790507417577-ff",
-    "studentName": "Fariya Fatema",
-    "className": "Grade 4",
-    "division": "A",
-    "createdAt": "2026-09-27T11:10:17.577Z"
   }
 ]

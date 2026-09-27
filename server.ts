@@ -850,8 +850,7 @@ async function startServer() {
   app.get("/api/shining-stars", (req, res) => {
     const stars = loadPersistentShiningStars();
     const deletedIds = loadPersistentDeletedStarIds();
-    const cleanStars = stars.filter((s) => !deletedIds.includes(s.id));
-    res.json({ success: true, stars: cleanStars, deletedIds });
+    res.json({ success: true, stars, deletedIds });
   });
 
   // POST /api/shining-stars/sync - Reconcile client shining stars with server storage
@@ -859,16 +858,17 @@ async function startServer() {
     const { clientStars } = req.body || {};
     const stars = loadPersistentShiningStars();
     const deletedIds = loadPersistentDeletedStarIds();
+    const deletedSet = new Set(deletedIds.map((d) => d.toLowerCase().trim()));
 
     if (Array.isArray(clientStars) && clientStars.length > 0) {
       let updated = false;
       for (const clientStar of clientStars) {
         if (!clientStar || !isValidStar(clientStar)) continue;
-        if (clientStar.id && deletedIds.includes(clientStar.id)) continue;
-        const id = clientStar.id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const starSig = `${String(clientStar.studentName || "").toLowerCase().trim()}|${String(clientStar.className || "").toLowerCase().trim()}|${String(clientStar.division || "").toLowerCase().trim()}`;
-        if (deletedIds.includes(starSig)) continue;
+        if (clientStar.id && deletedSet.has(String(clientStar.id).toLowerCase().trim())) continue;
+        if (deletedSet.has(starSig)) continue;
 
+        const id = clientStar.id || `star-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const existingIdx = stars.findIndex(
           (s) =>
             s.id === id ||
@@ -886,8 +886,7 @@ async function startServer() {
       }
     }
 
-    const cleanStars = stars.filter((s) => !deletedIds.includes(s.id));
-    res.json({ success: true, stars: cleanStars, deletedIds });
+    res.json({ success: true, stars, deletedIds });
   });
 
   app.post("/api/shining-stars", (req, res) => {
@@ -909,9 +908,12 @@ async function startServer() {
 
     // Remove from deleted list if recreating
     const deletedIds = loadPersistentDeletedStarIds();
-    if (deletedIds.includes(newStar.id) || deletedIds.includes(starSig)) {
-      deletedStarsCache = deletedIds.filter((d) => d !== newStar.id && d.toLowerCase() !== starSig);
-      safeWriteJsonFile(DELETED_STARS_FILE, deletedStarsCache);
+    const filteredDeleted = deletedIds.filter(
+      (d) => d.toLowerCase().trim() !== newStar.id.toLowerCase().trim() && d.toLowerCase().trim() !== starSig
+    );
+    if (filteredDeleted.length !== deletedIds.length) {
+      deletedStarsCache = filteredDeleted;
+      safeWriteJsonFile(DELETED_STARS_FILE, filteredDeleted);
     }
 
     const existingIdx = stars.findIndex(
