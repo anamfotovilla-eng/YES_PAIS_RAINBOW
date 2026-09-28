@@ -107,9 +107,9 @@ export const getStories = (): Story[] => {
     return slug || title || s.id;
   };
 
-  // Bundled DEFAULT_STORIES (from data/stories.json) are authoritative
-  if (Array.isArray(DEFAULT_STORIES)) {
-    for (const s of DEFAULT_STORIES) {
+  // 1. Primary: Load stored stories first (preserves exact chronological order with latest stories at the top)
+  if (Array.isArray(stored) && stored.length > 0) {
+    for (const s of stored) {
       if (s && s.id && s.title && s.content) {
         const key = getStoryKey(s);
         if (!seenKeys.has(key) && !seenKeys.has(s.id)) {
@@ -121,9 +121,9 @@ export const getStories = (): Story[] => {
     }
   }
 
-  // Merge any dynamically created local stories (avoiding duplicates)
-  if (Array.isArray(stored)) {
-    for (const s of stored) {
+  // 2. Secondary: Backfill any default stories missing from stored
+  if (Array.isArray(DEFAULT_STORIES)) {
+    for (const s of DEFAULT_STORIES) {
       if (s && s.id && s.title && s.content) {
         const key = getStoryKey(s);
         if (!seenKeys.has(key) && !seenKeys.has(s.id)) {
@@ -143,10 +143,33 @@ export const getStories = (): Story[] => {
     return !isStoryDeleted(s, deletedIds);
   });
 
-  if (filtered.length !== stored.length) {
-    setLocalStorage(KEYS.STORIES, filtered);
+  // Ensure newly created stories (not in DEFAULT_STORIES) are always at the top of the list!
+  // This permanently prevents newly added stories from ever being pushed to Page 2 or disappearing.
+  const userStories: Story[] = [];
+  const defaultStories: Story[] = [];
+  for (const s of filtered) {
+    const isDef = DEFAULT_STORIES.some((def) => def.id === s.id || (def.slug && def.slug === s.slug));
+    if (isDef) {
+      defaultStories.push(s);
+    } else {
+      userStories.push(s);
+    }
   }
-  return filtered;
+
+  // Sort userStories by createdAt descending (newest first)
+  userStories.sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  const finalResult = [...userStories, ...defaultStories];
+
+  if (finalResult.length > 0 && (finalResult.length !== stored.length || (stored[0] && finalResult[0] && stored[0].id !== finalResult[0].id))) {
+    setLocalStorage(KEYS.STORIES, finalResult);
+  }
+
+  return finalResult;
 };
 
 export const getAboutContent = (): AboutUsContent => {
@@ -395,12 +418,8 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
         }
 
         // For authenticated admin, reconcile any offline-created stories
-        const storyMap = new Map<string, Story>();
         const storyKey = (s: Story): string => (s.slug || "").trim().toLowerCase() || (s.title || "").trim().toLowerCase() || s.id;
-
-        for (const s of serverStories) {
-          storyMap.set(storyKey(s), s);
-        }
+        const serverKeys = new Set(serverStories.map((s) => storyKey(s)));
 
         const unSyncedStories: Story[] = [];
         for (const local of localStories) {
@@ -412,13 +431,13 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
             continue;
           }
           const k = storyKey(local);
-          if (!storyMap.has(k)) {
-            storyMap.set(k, local);
+          if (!serverKeys.has(k)) {
+            serverKeys.add(k);
             unSyncedStories.push(local);
           }
         }
 
-        const mergedStories = Array.from(storyMap.values());
+        const mergedStories = [...unSyncedStories, ...serverStories];
         setLocalStorage(KEYS.STORIES, mergedStories);
 
         if (unSyncedStories.length > 0) {
@@ -469,6 +488,10 @@ export const addStory = async (story: Omit<Story, "id" | "createdAt">): Promise<
   const updated = [newStory, ...current.filter((s) => s.id !== newStory.id)];
   saveStories(updated);
 
+  try {
+    window.dispatchEvent(new Event("storage"));
+  } catch {}
+
   if (newStory.isPublished) {
     addNotification(
       "New Story Added! 📚",
@@ -492,6 +515,9 @@ export const addStory = async (story: Omit<Story, "id" | "createdAt">): Promise<
         const freshCurrent = getStories();
         const freshUpdated = [data.story, ...freshCurrent.filter((s) => s.id !== data.story.id)];
         saveStories(freshUpdated);
+        try {
+          window.dispatchEvent(new Event("storage"));
+        } catch {}
         return data.story;
       }
     }
@@ -523,6 +549,9 @@ export const updateStory = async (id: string, updatedData: Partial<Story>): Prom
         const current = getStories();
         const updatedList = current.map((s) => (s.id === id ? data.story : s));
         saveStories(updatedList);
+        try {
+          window.dispatchEvent(new Event("storage"));
+        } catch {}
 
         if (!wasPublished && data.story.isPublished) {
           addNotification(
@@ -543,6 +572,9 @@ export const updateStory = async (id: string, updatedData: Partial<Story>): Prom
   if (index !== -1) {
     stories[index] = mergedStory;
     saveStories(stories);
+    try {
+      window.dispatchEvent(new Event("storage"));
+    } catch {}
   }
 
   if (!wasPublished && mergedStory.isPublished) {
@@ -1009,33 +1041,62 @@ export const getShiningStars = (): ShiningStar[] => {
   const starKey = (s: ShiningStar) =>
     `${(s.studentName || "").toLowerCase().trim()}|${(s.className || "").toLowerCase().trim()}|${(s.division || "").toLowerCase().trim()}`;
 
-  // 1. Add bundled DEFAULT_SHINING_STARS first
+  // 1. Primary: Load stored stars first (preserves newly created stars at the top)
+  if (Array.isArray(stored) && stored.length > 0) {
+    for (const s of stored) {
+      if (s && s.id && s.studentName && s.className && s.division) {
+        const k = starKey(s);
+        const sId = String(s.id).toLowerCase().trim();
+        if (!deletedSet.has(sId) && !deletedSet.has(k) && !starMap.has(k)) {
+          starMap.set(k, s);
+        }
+      }
+    }
+  }
+
+  // 2. Secondary: Backfill bundled DEFAULT_SHINING_STARS
   if (Array.isArray(DEFAULT_SHINING_STARS)) {
     for (const s of DEFAULT_SHINING_STARS) {
       if (s && s.id && s.studentName && s.className && s.division) {
-        if (!deletedSet.has(String(s.id).toLowerCase().trim()) && !deletedSet.has(starKey(s))) {
-          starMap.set(starKey(s), s);
+        const k = starKey(s);
+        const sId = String(s.id).toLowerCase().trim();
+        if (!deletedSet.has(sId) && !deletedSet.has(k) && !starMap.has(k)) {
+          starMap.set(k, s);
         }
       }
     }
   }
 
-  // 2. Merge stored stars from localStorage
-  if (Array.isArray(stored)) {
-    for (const s of stored) {
-      if (s && s.id && s.studentName && s.className && s.division) {
-        if (!deletedSet.has(String(s.id).toLowerCase().trim()) && !deletedSet.has(starKey(s))) {
-          starMap.set(starKey(s), s);
-        }
-      }
+  const allStars = Array.from(starMap.values());
+
+  // Ensure newly created stars (not in DEFAULT_SHINING_STARS) always stay at the top of the list!
+  const userStars: ShiningStar[] = [];
+  const defaultStars: ShiningStar[] = [];
+  for (const s of allStars) {
+    const isDef = DEFAULT_SHINING_STARS.some(
+      (def) => def.id === s.id || starKey(def) === starKey(s)
+    );
+    if (isDef) {
+      defaultStars.push(s);
+    } else {
+      userStars.push(s);
     }
   }
 
-  const result = Array.from(starMap.values());
-  if (result.length !== stored.length) {
-    setLocalStorage(KEYS.SHINING_STARS, result);
+  // Sort userStars by createdAt descending (newest first)
+  userStars.sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  const finalStars = [...userStars, ...defaultStars];
+
+  if (finalStars.length > 0 && (finalStars.length !== stored.length || (stored[0] && finalStars[0] && stored[0].id !== finalStars[0].id))) {
+    setLocalStorage(KEYS.SHINING_STARS, finalStars);
   }
-  return result;
+
+  return finalStars;
 };
 
 export const saveShiningStars = (stars: ShiningStar[]): void => {
@@ -1088,10 +1149,7 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
         }
 
         // For authenticated admin, reconcile any offline-created stars
-        const starMap = new Map<string, ShiningStar>();
-        for (const s of serverStars) {
-          starMap.set(starKey(s), s);
-        }
+        const serverStarKeys = new Set(serverStars.map((s) => starKey(s)));
 
         const unSyncedStars: ShiningStar[] = [];
         for (const local of localStars) {
@@ -1099,13 +1157,13 @@ export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
             continue;
           }
           const k = starKey(local);
-          if (!starMap.has(k)) {
-            starMap.set(k, local);
+          if (!serverStarKeys.has(k)) {
+            serverStarKeys.add(k);
             unSyncedStars.push(local);
           }
         }
 
-        const mergedStars = Array.from(starMap.values());
+        const mergedStars = [...unSyncedStars, ...serverStars];
         setLocalStorage(KEYS.SHINING_STARS, mergedStars);
 
         if (unSyncedStars.length > 0) {

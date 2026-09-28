@@ -29,6 +29,39 @@ import { matchesStorySearch } from "./lib/search";
 
 const STORIES_PER_PAGE = 6;
 
+const areStoriesEqual = (a: Story[], b: Story[]): boolean => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].title !== b[i].title ||
+      a[i].isPublished !== b[i].isPublished ||
+      a[i].imageUrl !== b[i].imageUrl ||
+      a[i].description !== b[i].description
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const areStarsEqual = (a: ShiningStar[], b: ShiningStar[]): boolean => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].studentName !== b[i].studentName ||
+      a[i].className !== b[i].className ||
+      a[i].division !== b[i].division
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
 export default function App() {
   // Navigation Routing State
   const [currentRoute, setCurrentRoute] = useState<string>(window.location.hash || "#/");
@@ -48,27 +81,32 @@ export default function App() {
 
   // Synchronize on mount and monitor URL hash changes, cross-tab storage, and real-time updates
   useEffect(() => {
-    const handleSync = () => {
-      refreshAppDatabase();
-      fetchStoriesAsync().then((fresh) => {
-        if (Array.isArray(fresh)) {
-          setStories(fresh);
+    // 1. Initial fast local hydration (so page renders immediately from cache on first load)
+    refreshAppDatabase();
+
+    // 2. Authoritative background sync from server without clearing or flashing active UI
+    const syncFromServer = async () => {
+      try {
+        const [freshStories, freshNotifs, freshStars] = await Promise.all([
+          fetchStoriesAsync().catch(() => null),
+          fetchNotificationsAsync().catch(() => null),
+          fetchShiningStarsAsync().catch(() => null),
+        ]);
+
+        if (Array.isArray(freshStories)) {
+          setStories((prev) => (areStoriesEqual(prev, freshStories) ? prev : freshStories));
         }
-      });
-      fetchNotificationsAsync().then((freshNotifs) => {
         if (Array.isArray(freshNotifs)) {
           setNotifications(freshNotifs);
         }
-      });
-      fetchShiningStarsAsync().then((freshStars) => {
         if (Array.isArray(freshStars)) {
-          setShiningStars(freshStars);
+          setShiningStars((prev) => (areStarsEqual(prev, freshStars) ? prev : freshStars));
         }
-      });
+      } catch {}
     };
 
-    // Initial fetch from storage & sync from server API
-    handleSync();
+    // Immediate server sync on mount
+    syncFromServer();
 
     // Check auth session
     const isLogged =
@@ -79,27 +117,31 @@ export default function App() {
     const handleHashChange = () => {
       const newHash = window.location.hash || "#/";
       setCurrentRoute(newHash);
-      // Reset page when returning or navigating to prevent blank pages
       setCurrentPage(1);
-      handleSync();
+      syncFromServer();
     };
 
-    // 1. Cross-tab/window storage listener (e.g. admin deletes story in Tab 1, Tab 2 updates instantly)
+    // 1. Cross-tab/window storage listener (e.g. admin creates or deletes story in Tab 1, Tab 2 updates instantly)
     const handleStorageChange = () => {
-      handleSync();
+      refreshAppDatabase();
+      syncFromServer();
     };
 
-    // 2. Tab focus / visibility change sync
+    // 2. Tab focus / visibility change sync: ONLY sync from server in background; DO NOT wipe active state!
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        handleSync();
+        syncFromServer();
       }
     };
 
-    // 3. Lightweight background poll so random users without focus/refresh automatically sync
+    const handleFocus = () => {
+      syncFromServer();
+    };
+
+    // 3. Lightweight background poll so other users get new stories automatically, without any UI flicker or disappearance
     const pollInterval = setInterval(() => {
-      handleSync();
-    }, 8000);
+      syncFromServer();
+    }, 10000);
 
     const handleUserNotificationsChange = () => {
       setNotifications(getNotifications());
@@ -107,14 +149,14 @@ export default function App() {
 
     window.addEventListener("hashchange", handleHashChange);
     window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("focus", handleSync);
+    window.addEventListener("focus", handleFocus);
     window.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("yespaistory_user_notifications_changed", handleUserNotificationsChange);
 
     return () => {
       window.removeEventListener("hashchange", handleHashChange);
       window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("focus", handleSync);
+      window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("yespaistory_user_notifications_changed", handleUserNotificationsChange);
       clearInterval(pollInterval);
