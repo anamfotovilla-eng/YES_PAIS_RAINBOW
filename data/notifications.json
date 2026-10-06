@@ -1,5 +1,32 @@
 [
   {
+    "id": "notif-story-1791303248065",
+    "title": "New Story Published! 📚",
+    "message": "\"Save Water\" by Siddheka Shaikh is now available in the library!",
+    "storyId": "story-1791303248065",
+    "storySlug": "save-water",
+    "createdAt": "2026-10-06T16:14:08.065Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1791303107522",
+    "title": "New Story Published! 📚",
+    "message": "\"The Brave Girl\" by Maryam Md. Salim Sayyed is now available in the library!",
+    "storyId": "story-1791303107522",
+    "storySlug": "the-brave-girl",
+    "createdAt": "2026-10-06T16:11:47.522Z",
+    "isRead": false
+  },
+  {
+    "id": "notif-story-1790869992486",
+    "title": "New Story Published! 📚",
+    "message": "\"Beneath the White Dome: Maya & Disha’s Journey Through Agra\" by Shreya Mahadev Thombe is now available in the library!",
+    "storyId": "story-1790869992486",
+    "storySlug": "beneath-the-white-dome-maya-disha-s-journey-through-agra",
+    "createdAt": "2026-10-01T15:53:12.486Z",
+    "isRead": false
+  },
+  {
     "id": "notif-story-1790507366217",
     "title": "New Story Published! 📚",
     "message": "\"Best Friends Forever\" by Fatema Ehsan Shaikh is now available in the library!",

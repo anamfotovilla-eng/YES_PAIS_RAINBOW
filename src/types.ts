@@ -11,17 +11,22 @@ export interface Module {
 
 export interface Story {
   id: string;
+  _id?: string;
   title: string;
   slug: string;
   description: string;
   content: string;
   gradeId: string; // e.g., "grade-1"
+  grade?: string;
   moduleId: string; // e.g., "nature-and-wildlife"
+  genre?: string;
   imageUrl: string;
   keywords: string[];
   isPublished: boolean;
   createdAt: string;
   studentName?: string;
+  author?: string;
+  pages?: string[];
 }
 
 export interface AboutUsContent {

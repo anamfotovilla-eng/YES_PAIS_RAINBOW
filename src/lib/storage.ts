@@ -18,14 +18,151 @@ const KEYS = {
   DELETED_STARS: "yespaistory_deleted_star_ids",
 };
 
-// Check if a story has been deleted across exact ID
+// Check if a story has been deleted across exact ID or _id
 export const isStoryDeleted = (
-  story: { id?: string; slug?: string; title?: string } | null | undefined,
+  story: { id?: string; _id?: string; slug?: string; title?: string } | null | undefined,
   deletedIds: string[]
 ): boolean => {
-  if (!story || !story.id || !Array.isArray(deletedIds) || deletedIds.length === 0) return false;
-  const id = String(story.id).toLowerCase().trim();
-  return deletedIds.some((del) => String(del || "").toLowerCase().trim() === id);
+  if (!story || !Array.isArray(deletedIds) || deletedIds.length === 0) return false;
+  const id = String(story.id || story._id || "").toLowerCase().trim();
+  const slug = String(story.slug || "").toLowerCase().trim();
+  const title = String(story.title || "").toLowerCase().trim();
+  return deletedIds.some((del) => {
+    const d = String(del || "").toLowerCase().trim();
+    if (!d) return false;
+    return (id && d === id) || (slug && d === slug) || (title && d === title);
+  });
+};
+
+export const DEFAULT_STORY_IMAGE = "https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=800&auto=format&fit=crop";
+
+// Universal story sanitizer to prevent crashes and schema mismatches
+export const sanitizeStory = (s: any, fallbackIndex = 0): Story => {
+  if (!s || typeof s !== "object") {
+    const fallbackId = `story-${Date.now()}-${fallbackIndex}`;
+    return {
+      id: fallbackId,
+      _id: fallbackId,
+      title: "Untitled Story",
+      studentName: "Student Author",
+      author: "Student Author",
+      slug: fallbackId,
+      description: "",
+      content: "",
+      gradeId: "grade-1",
+      grade: "grade-1",
+      moduleId: "mod-nature",
+      genre: "mod-nature",
+      imageUrl: DEFAULT_STORY_IMAGE,
+      keywords: [],
+      isPublished: true,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  const rawId = s.id || s._id || s.slug || `story-${Date.now()}-${fallbackIndex}`;
+  const id = String(rawId).trim();
+  const title = String(s.title || "Untitled Story").trim();
+
+  // Robust slug generation with fallback
+  let slug = String(s.slug || "").trim().toLowerCase();
+  if (!slug) {
+    slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "");
+  }
+  if (!slug) {
+    slug = id;
+  }
+
+  // Content normalization: string, array of strings/pages, or fallback
+  let content = "";
+  if (typeof s.content === "string") {
+    content = s.content;
+  } else if (Array.isArray(s.content)) {
+    content = s.content.map((p: any) => String(p || "").trim()).filter(Boolean).join("\n\n");
+  } else if (Array.isArray(s.pages)) {
+    content = s.pages.map((p: any) => String(p || "").trim()).filter(Boolean).join("\n\n");
+  } else if (typeof s.description === "string") {
+    content = s.description;
+  }
+
+  // Description fallback
+  const description = String(
+    s.description || (content ? content.slice(0, 160).trim() + (content.length > 160 ? "..." : "") : "")
+  ).trim();
+
+  // Grade & Module normalization (support grade, gradeId, grade_id, genre, category, module, moduleId)
+  const gradeId = String(s.gradeId || s.grade_id || s.grade || "grade-1").trim();
+  const moduleId = String(s.moduleId || s.module_id || s.module || s.genre || s.category || "mod-nature").trim();
+
+  // Keywords normalization: array or comma/space-separated string
+  let keywords: string[] = [];
+  if (Array.isArray(s.keywords)) {
+    keywords = s.keywords
+      .flatMap((k: any) => String(k || "").split(/[\s,]+/))
+      .map((k: string) => k.replace(/^[#@]+/, "").trim().toLowerCase())
+      .filter(Boolean);
+  } else if (typeof s.keywords === "string" && s.keywords.trim()) {
+    keywords = s.keywords
+      .split(/[\s,]+/)
+      .map((k: string) => k.replace(/^[#@]+/, "").trim().toLowerCase())
+      .filter(Boolean);
+  }
+  keywords = Array.from(new Set(keywords));
+
+  // Published normalization (default to true unless explicitly false or "false")
+  const isPublished = s.isPublished !== false && s.isPublished !== "false";
+
+  const imageUrl = String(s.imageUrl || "").trim() || DEFAULT_STORY_IMAGE;
+  const studentName = String(s.studentName || s.author || "Student Author").trim();
+  const createdAt = s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString();
+
+  return {
+    id,
+    _id: id,
+    title,
+    studentName,
+    author: studentName,
+    slug,
+    description,
+    content,
+    gradeId,
+    grade: gradeId,
+    moduleId,
+    genre: moduleId,
+    imageUrl,
+    keywords,
+    isPublished,
+    createdAt,
+  };
+};
+
+// Canonical story sorting function: user/created stories first (newest first), then default catalog
+export const sortStories = (storyList: Story[]): Story[] => {
+  const userStories: Story[] = [];
+  const defaultStories: Story[] = [];
+
+  for (const s of storyList) {
+    const isDef = DEFAULT_STORIES.some(
+      (def) => def.id === s.id || (def.slug && def.slug === s.slug)
+    );
+    if (isDef) {
+      defaultStories.push(s);
+    } else {
+      userStories.push(s);
+    }
+  }
+
+  // Sort userStories by createdAt descending (newest first)
+  userStories.sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  return [...userStories, ...defaultStories];
 };
 
 // Backwards-compatible dummy check - never rejects user stories
@@ -107,10 +244,29 @@ export const getStories = (): Story[] => {
     return slug || title || s.id;
   };
 
+  // Map of canonical bundled stories by ID, slug, and title
+  const defaultStoryMap = new Map<string, Story>();
+  if (Array.isArray(DEFAULT_STORIES)) {
+    for (const raw of DEFAULT_STORIES) {
+      if (raw && (raw.title || raw.content)) {
+        const s = sanitizeStory(raw);
+        if (s.id) defaultStoryMap.set(s.id.toLowerCase().trim(), s);
+        if (s.slug) defaultStoryMap.set(s.slug.toLowerCase().trim(), s);
+        if (s.title) defaultStoryMap.set(s.title.toLowerCase().trim(), s);
+      }
+    }
+  }
+
   // 1. Primary: Load stored stories first (preserves exact chronological order with latest stories at the top)
   if (Array.isArray(stored) && stored.length > 0) {
-    for (const s of stored) {
-      if (s && s.id && s.title && s.content) {
+    for (const raw of stored) {
+      if (raw && (raw.title || raw.content)) {
+        const rawId = String(raw.id || raw._id || "").toLowerCase().trim();
+        const rawSlug = String(raw.slug || "").toLowerCase().trim();
+        const rawTitle = String(raw.title || "").toLowerCase().trim();
+        // If a canonical version exists in DEFAULT_STORIES, prefer it to pick up official title/description/keyword updates
+        const canonical = defaultStoryMap.get(rawId) || (rawSlug ? defaultStoryMap.get(rawSlug) : undefined) || (rawTitle ? defaultStoryMap.get(rawTitle) : undefined);
+        const s = canonical || sanitizeStory(raw);
         const key = getStoryKey(s);
         if (!seenKeys.has(key) && !seenKeys.has(s.id)) {
           seenKeys.add(key);
@@ -123,8 +279,9 @@ export const getStories = (): Story[] => {
 
   // 2. Secondary: Backfill any default stories missing from stored
   if (Array.isArray(DEFAULT_STORIES)) {
-    for (const s of DEFAULT_STORIES) {
-      if (s && s.id && s.title && s.content) {
+    for (const raw of DEFAULT_STORIES) {
+      if (raw && (raw.title || raw.content)) {
+        const s = sanitizeStory(raw);
         const key = getStoryKey(s);
         if (!seenKeys.has(key) && !seenKeys.has(s.id)) {
           seenKeys.add(key);
@@ -143,27 +300,7 @@ export const getStories = (): Story[] => {
     return !isStoryDeleted(s, deletedIds);
   });
 
-  // Ensure newly created stories (not in DEFAULT_STORIES) are always at the top of the list!
-  // This permanently prevents newly added stories from ever being pushed to Page 2 or disappearing.
-  const userStories: Story[] = [];
-  const defaultStories: Story[] = [];
-  for (const s of filtered) {
-    const isDef = DEFAULT_STORIES.some((def) => def.id === s.id || (def.slug && def.slug === s.slug));
-    if (isDef) {
-      defaultStories.push(s);
-    } else {
-      userStories.push(s);
-    }
-  }
-
-  // Sort userStories by createdAt descending (newest first)
-  userStories.sort((a, b) => {
-    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return timeB - timeA;
-  });
-
-  const finalResult = [...userStories, ...defaultStories];
+  const finalResult = sortStories(filtered);
 
   if (finalResult.length > 0 && (finalResult.length !== stored.length || (stored[0] && finalResult[0] && stored[0].id !== finalResult[0].id))) {
     setLocalStorage(KEYS.STORIES, finalResult);
@@ -402,9 +539,9 @@ export const fetchStoriesAsync = async (): Promise<Story[]> => {
         }
         setLocalStorage(KEYS.DELETED_STORIES, Array.from(deletedSet));
 
-        const serverStories: Story[] = data.stories.filter(
-          (s: Story) => s && s.title && s.content
-        );
+        const serverStories: Story[] = data.stories
+          .filter((s: Story) => s && s.title && s.content)
+          .map((s: any, idx: number) => sanitizeStory(s, idx));
 
         const isAdmin = typeof window !== "undefined" && (
           sessionStorage.getItem("yespaistory_admin_logged") === "true" ||
