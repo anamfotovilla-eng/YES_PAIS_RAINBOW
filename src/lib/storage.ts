@@ -1,5 +1,5 @@
 import { Grade, Module, Story, AboutUsContent, ContactUsContent, AppNotification, FeedbackItem, ShiningStar } from "../types";
-import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_ABOUT, DEFAULT_CONTACT, DEFAULT_STORIES, DEFAULT_SHINING_STARS } from "../sampleData";
+import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_ABOUT, DEFAULT_CONTACT, DEFAULT_STORIES, DEFAULT_SHINING_STARS, DEFAULT_NOTIFICATIONS } from "../sampleData";
 
 const KEYS = {
   GRADES: "yespaistory_grades",
@@ -344,15 +344,24 @@ export const getUserClearedNotificationsAt = (): number => {
 export const getRawNotifications = (): AppNotification[] => {
   const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STORIES, []);
   const lowerDeletedSet = new Set(deletedIds.map((d) => String(d || "").toLowerCase().trim()));
-  const stored = getLocalStorage<AppNotification[]>(KEYS.NOTIFICATIONS, []);
+  const stored = getLocalStorage<AppNotification[]>(KEYS.NOTIFICATIONS, DEFAULT_NOTIFICATIONS);
 
-  // Filter out notifications referencing deleted stories
+  // Set of canonical notification IDs from DEFAULT_NOTIFICATIONS
+  const canonicalNotifIds = new Set(DEFAULT_NOTIFICATIONS.map((n) => n.id));
+
+  // Filter out notifications referencing deleted stories, and purge any old notifications for default stories that are no longer in canonical DEFAULT_NOTIFICATIONS
   return stored.filter((n) => {
     if (!n || !n.id) return false;
     const sId = String(n.storyId || "").toLowerCase().trim();
     const sSlug = String(n.storySlug || "").toLowerCase().trim();
     if (sId && (lowerDeletedSet.has(sId) || deletedIds.includes(n.storyId || ""))) return false;
     if (sSlug && (lowerDeletedSet.has(sSlug) || deletedIds.includes(n.storySlug || ""))) return false;
+
+    // Filter out old notifications from earlier base batches (so only newly added stories notify)
+    if (n.id.startsWith("notif-story-1790507") && !canonicalNotifIds.has(n.id)) {
+      return false;
+    }
+
     return true;
   });
 };
