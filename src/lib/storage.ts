@@ -1,5 +1,5 @@
 import { Grade, Module, Story, AboutUsContent, ContactUsContent, AppNotification, FeedbackItem, ShiningStar } from "../types";
-import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_ABOUT, DEFAULT_CONTACT, DEFAULT_STORIES, DEFAULT_SHINING_STARS, DEFAULT_NOTIFICATIONS } from "../sampleData";
+import { DEFAULT_GRADES, DEFAULT_MODULES, DEFAULT_ABOUT, DEFAULT_CONTACT, DEFAULT_STORIES, DEFAULT_SHINING_STARS, DEFAULT_DELETED_STAR_IDS, DEFAULT_NOTIFICATIONS } from "../sampleData";
 
 const KEYS = {
   GRADES: "yespaistory_grades",
@@ -1180,8 +1180,8 @@ export const isDefaultStar = (_s: ShiningStar): boolean => false;
 
 export const getShiningStars = (): ShiningStar[] => {
   const stored = getLocalStorage<ShiningStar[]>(KEYS.SHINING_STARS, DEFAULT_SHINING_STARS);
-  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
-  const deletedSet = new Set(deletedIds.map((d) => String(d).toLowerCase().trim()));
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, DEFAULT_DELETED_STAR_IDS);
+  const deletedSet = new Set([...DEFAULT_DELETED_STAR_IDS, ...deletedIds].map((d) => String(d).toLowerCase().trim()));
 
   const starMap = new Map<string, ShiningStar>();
   const starKey = (s: ShiningStar) =>
@@ -1238,7 +1238,7 @@ export const getShiningStars = (): ShiningStar[] => {
 
   const finalStars = [...userStars, ...defaultStars];
 
-  if (finalStars.length > 0 && (finalStars.length !== stored.length || (stored[0] && finalStars[0] && stored[0].id !== finalStars[0].id))) {
+  if (finalStars.length !== stored.length || (finalStars.length > 0 && stored[0] && finalStars[0] && stored[0].id !== finalStars[0].id)) {
     setLocalStorage(KEYS.SHINING_STARS, finalStars);
   }
 
@@ -1252,8 +1252,8 @@ export const saveShiningStars = (stars: ShiningStar[]): void => {
 // Server API sync for Shining Stars - bidirectional auto-persistence
 export const fetchShiningStarsAsync = async (): Promise<ShiningStar[]> => {
   const localStars = getShiningStars();
-  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, []);
-  const deletedSet = new Set(deletedIds.map((d) => String(d).toLowerCase().trim()));
+  const deletedIds = getLocalStorage<string[]>(KEYS.DELETED_STARS, DEFAULT_DELETED_STAR_IDS);
+  const deletedSet = new Set([...DEFAULT_DELETED_STAR_IDS, ...deletedIds].map((d) => String(d).toLowerCase().trim()));
 
   try {
     const res = await fetch("/api/shining-stars");

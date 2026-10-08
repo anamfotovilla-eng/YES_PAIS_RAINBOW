@@ -2,6 +2,7 @@ import { Grade, Module, Story, AboutUsContent, ContactUsContent, ShiningStar, Ap
 import storiesJson from "../data/stories.json";
 import starsJson from "../data/shining-stars.json";
 import notifsJson from "../data/notifications.json";
+import deletedStarsJson from "../data/deleted-star-ids.json";
 
 export const DEFAULT_GRADES: Grade[] = [
   { id: "grade-1", name: "Grade 1" },
@@ -26,6 +27,7 @@ export const DEFAULT_MODULES: Module[] = [
 // Initial state from data JSON files (bundled for offline & static reliability)
 export const DEFAULT_STORIES: Story[] = Array.isArray(storiesJson) ? (storiesJson as Story[]) : [];
 export const DEFAULT_SHINING_STARS: ShiningStar[] = Array.isArray(starsJson) ? (starsJson as ShiningStar[]) : [];
+export const DEFAULT_DELETED_STAR_IDS: string[] = Array.isArray(deletedStarsJson) ? (deletedStarsJson as string[]) : [];
 export const DEFAULT_NOTIFICATIONS: AppNotification[] = Array.isArray(notifsJson) ? (notifsJson as AppNotification[]) : [];
 
 
